@@ -1,5 +1,6 @@
 #include "common.h"
 
+
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -28,7 +29,7 @@ struct exit_packet {
 struct response_packet {
 	struct head head;
 	u32 status;
-}
+};
 
 #define HEAD_LEN sizeof(struct head_packet)
 /* #define DATA_LEN 1024 * 1024 * 5 */

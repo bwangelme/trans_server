@@ -1,7 +1,7 @@
 #ifndef SERVER_H
 #define SERVER_H
 
-#include "common.h"
+#include "data_type.h"
 #include <map>
 #include <vector>
 using namespace std;

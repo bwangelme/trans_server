@@ -1,27 +1,59 @@
 /* 	对象包含示意图
- *      epoll
- *        |
- *	server
- *	  | ------  |  ----- |
- *     usermap(g) f2c(g)   addr
+ *
+ *   server_epoll
+ *        \
+ *        \ --- 控制
+ *        \
+ *	server(o)
+ *	  | -------  |  ------ | -------- |
+ *     usermap(go) f2c(go)   addr   threadpool(o)
  *	  |	       
- *	user	       
- *	  | ------- | ---- | 
- *    packet_list  fd     online
+ *	user(o)
+ *	  | ---------- | ------ | 
+ *    packet_list(o)  fd     online
  *	  |
- *	packet
+ *	packet(o)
  *	  |
- *	socket
+ *	socket(o)
  *
  * usermap: 用户和cid的映射，为了以后添加新的键元素，所以用结构体来保存键
  * f2c:	fd到cid的映射
  * epoll: epoll的描述符
+ *
+ * g: 全局变量
+ * o: 对象
  */
 
-#include "common.h"
+#include "server.h"
 
 /*
- * 创建服务器套接字，并进行绑定监听
+ * 设置套接字描述符为非阻塞
+ */
+int socket_non_block(int sockfd)
+{
+	int flags, ret;
+
+	flags = fcntl(sockfd, F_GETFL, 0);
+	if(-1 == flags) {
+		goto err_ret;
+	}
+
+	flags |= O_NONBLOCK;
+
+	ret = fcntl(sockfd, F_SETFL, flags);
+	if(-1 == ret) {
+		goto err_ret;
+	}
+
+	return 0;
+
+err_ret:
+	fprintf(stderr, "[socket_non_block]: %s\n", strerror(errno));
+	return -1;
+}
+
+/*
+ * 创建服务器套接字，并进行绑定监听,将描述符设置为非阻塞
  *
  * @ret:	监听套接字
  */
@@ -45,11 +77,16 @@ int socket_server_create(struct sockaddr *addr, socklen_t addrlen)
 		goto free_ret;
 	}
 
+	ret = socket_non_block(listenfd);
+	if(-1 == ret) {
+		goto free_ret;
+	}
+
 	return listenfd;
 
-ret:
-	close(listenfd);
 free_ret:
+	close(listenfd);
+ret:
 	fprintf(stderr, "[socket_server_create]: %s\n", strerror(errno));
 	return -1;
 }
@@ -87,19 +124,19 @@ int socket_close(int sockfd)
 /*
  * 接收报文
  */
-int packet_recv(struct *head phead)
+int packet_recv(struct head *phead)
 {
 	//首先读个头，然后再按照头中的类型进行相应的读取
-	socket_recvn()
+	socket_recvn();
 }
 
 /*
  * 发送报文
  */
-int packet_send(struct *head phead)
+int packet_send(struct head *phead)
 {
 	//判断头的类型，然后再进行相应的发送
-	socket_sendn()
+	/* socket_sendn(); */
 }
 
 /*
@@ -107,9 +144,9 @@ int packet_send(struct *head phead)
  */
 int list_init()
 {
-	lock = ;
-	head = ;
-	count = 0;
+	/* lock = ; */
+	/* head = ; */
+	/* count = 0; */
 }
 
 /*
@@ -124,7 +161,7 @@ int list_add()
  */
 int list_pop()
 {
-	packet_send();
+	/* packet_send(); */
 	//释放数据报文的空间
 }
 
@@ -135,8 +172,8 @@ int list_pop()
  */
 int user_init(int sockfd)
 {
-	fd =sockfd;
-	list_init()
+	/* fd =sockfd; */
+	/* list_init() */
 }
 
 /*
@@ -144,8 +181,8 @@ int user_init(int sockfd)
  */
 int user_logout()
 {
-	online = 0;
-	f2c_delete();
+	/* online = 0; */
+	/* f2c_delete(); */
 }
 
 /*
@@ -153,7 +190,7 @@ int user_logout()
  */
 int user_login()
 {
-	f2c_add();
+	/* f2c_add(); */
 }
 
 /*
@@ -161,7 +198,7 @@ int user_login()
  */
 int user_data_add()
 {
-	list_add()
+	/* list_add() */
 }
 
 /*
@@ -169,7 +206,7 @@ int user_data_add()
  */
 int user_data_pop()
 {
-	list_pop()
+	/* list_pop() */
 }
 
 /*
@@ -184,7 +221,7 @@ int user_is_onlie()
  */
 int usermap_add_user()
 {
-	user_init();
+	/* user_init(); */
 }
 
 /*
@@ -217,14 +254,14 @@ int f2c_query(int fd)
  *
  * @ret:	epollfd
  */
-int my_epoll_create()
+int server_epoll_create()
 {
 	int epollfd;
 
 	epollfd = epoll_create(1);
 
 	if(-1 == epollfd) {
-		close(epollfd)
+		close(epollfd);
 		fprintf(stderr, "[my_epoll_create]: %s\n",
 			strerror(errno));
 		return -1;
@@ -234,10 +271,54 @@ int my_epoll_create()
 }
 
 /*
+ * 向epoll中添加文件描述符，并设定监听的事件
+ *
+ *
+ */
+int server_epoll_add(int epollfd, int fd, u32 events)
+{
+	int ret;
+	struct epoll_event event;
+
+	event.data.fd = fd;
+	event.events = events;
+	ret = epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
+
+	if(-1 == ret) {
+		close(epollfd);
+		fprintf(stderr, "[server_epoll_add]: %s\n",
+			strerror(errno));
+		return -1;
+	}
+
+	return 0;
+}
+
+/*
+ * 等待epoll事件
+ */
+int server_epoll_wait(int epollfd, struct epoll_event *events,
+			int max_events)
+{
+	int n;
+
+	n = epoll_wait(epollfd, events, max_events, -1);
+
+	if(-1 == n) {
+		close(epollfd);
+		fprintf(stderr, "[server_epoll_wait]: %s\n",
+				strerror(errno));
+		return -1;
+	}
+
+	return n;
+}
+
+/*
  * 设置套接字的地址
  */
 int addr_set(struct sockaddr_in *addr, socklen_t addlen,
-		char *ip, int port)
+		char *ip, u16 port)
 {
 	int ret;
 
@@ -246,7 +327,7 @@ int addr_set(struct sockaddr_in *addr, socklen_t addlen,
 	addr->sin_port = htons(port);
 	ret = inet_pton(AF_INET, ip, &addr->sin_addr);
 
-	if(-1 != ret) {
+	if(-1 == ret) {
 		fprintf(stderr, "[server_set_addr]: %s\n",
 			strerror(errno));
 		return -1;
@@ -262,12 +343,12 @@ int addr_set(struct sockaddr_in *addr, socklen_t addlen,
 /*
  * 服务器初始化，创建套接字
  */
-int server_init(char *ip, int port)
+int server_init(char *ip, u16 port)
 {
 	int listenfd, ret;
 	struct sockaddr_in servaddr;
 
-	ret = addr_set(servaddr, sizeof(servaddr), ip, port);
+	ret = addr_set(&servaddr, sizeof(servaddr), ip, port);
 	if(-1 == ret) {
 		goto err_ret;
 	}
@@ -277,6 +358,9 @@ int server_init(char *ip, int port)
 	if(-1 == listenfd) {
 		goto err_ret;
 	}
+
+//TODO:
+//	threadpool_init();
 
 	return listenfd;
 
@@ -290,10 +374,10 @@ err_ret:
  */
 int server_accept()
 {
-	socket_accept();
-	packet_recv(login_packet);
-	cmap_add_user();
-	user_login();
+	/* socket_accept(); */
+	/* packet_recv(login_packet); */
+	/* cmap_add_user(); */
+	/* user_login(); */
 }
 
 /*
@@ -302,13 +386,13 @@ int server_accept()
 int server_recvive()
 {
 	//申请数据报文的空间
-	packet_recv();
+	/* packet_recv(); */
 
 	//如果发送过来的是退出报文，则user_logout
-	if(type = exit)
-		user_logout()
-	else
-		user_data_add();
+	/* if(type = exit) */
+	/* 	user_logout() */
+	/* else */
+	/* 	user_data_add(); */
 }
 
 /*
@@ -324,23 +408,64 @@ int server_send()
 
 int main(int argc, char *argv[])
 {
-	int ret;
+	int listenfd;
 	int epollfd;
+	int ret, n, i, err = 0;
+	struct epoll_event events[MAX_EVENTS];
 
-	ret = server_init(IP, PORT);
-	if(-1 == ret) {
+	bzero(events, MAX_EVENTS * sizeof(struct epoll_event));
+
+	listenfd = server_init((char *)IP, PORT);
+	if(-1 == listenfd) {
+		err = 1;
 		goto err_ret;
 	}
 
-	epollfd = my_epoll_create();
+	epollfd = server_epoll_create();
 	if(-1 == epollfd) {
-		goto err_ret;
+		err = 1;
+		goto free_sockfd;
+	}
+
+	if(-1 == server_epoll_add(epollfd, listenfd,
+			EPOLLIN | EPOLLET)) {
+		err = 1;
+		goto free_sockfd;
+	}
+
+	for(;;) {
+		n = server_epoll_wait(epollfd, events, MAX_EVENTS);
+		for(i = 0; i < n; i++) {
+			if( (events[i].events & EPOLLERR) ||
+			    (events[i].events & EPOLLHUP) ||
+			    (!(events[i].events & EPOLLIN)) ) {
+				fprintf(stderr, "[main]: %d epoll error",
+					events[i].data.fd);
+				close(events[i].data.fd);
+			} else if(events[i].data.fd == listenfd) {
+				printf("Accept -- \n");
+				/* server_accept(); */
+			} else {
+				if(events[i].events & EPOLLIN) {
+					printf("Read from %d\n",
+						events[i].data.fd);
+				} else if (events[i].events & EPOLLOUT) {
+					printf("Write to %d\n",
+						events[i].data.fd);
+				}
+			}
+		}
 	}
 
 
+	close(epollfd);
+free_sockfd:
+	close(listenfd);
+	if(1 == err)
+		goto err_ret;
 	return 0;
 
 err_ret:
-	fprintf(stderr, "[main]");
+	fprintf(stderr, "[main]\n");
 	exit(EXIT_FAILURE);
 }
