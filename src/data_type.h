@@ -1,5 +1,7 @@
-#include "common.h"
+#ifndef DATA_TYPE_H
+#define DATA_TYPE_H
 
+#include "common.h"
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -31,10 +33,16 @@ struct response_packet {
 	u32 status;
 };
 
-#define HEAD_LEN sizeof(struct head_packet)
+#define HEAD_LEN sizeof(struct head)
 /* #define DATA_LEN 1024 * 1024 * 5 */
 #define DATA_LEN 1024
 #define BUF_LEN HEAD_LEN+DATA_LEN
 #define RESPONSE_LEN HEAD_LEN+sizeof(u32)
 #define TIMEOUT 20
 
+#define TYPE_LOGIN 	0x00000001
+#define TYPE_DATA  	0x00000002
+#define TYPE_EXIT  	0x00000003
+#define TYPE_RESPONSE   0x00000004
+
+#endif

@@ -99,8 +99,24 @@ int socket_recvn()
 /*
  * 制作登录包，数据包，退出包
  */
-int packet_make()
+int packet_make(struct head *head, u16 scid, u32 type)
 {
+	struct login_packet *lpack = NULL;
+
+	switch(type) {
+	case TYPE_LOGIN:
+		lpack = (struct login_packet *)head;
+		lpack->head.type = type;
+		lpack->head.dcid = 0;
+		lpack->head.scid = scid;
+		lpack->head.len = HEAD_LEN;
+		break;
+	default:
+		fprintf(stderr, "[packet_make]: %s\n", "invailed type");
+		return -1;
+	}
+
+	return 0;
 }
 
 /*
@@ -110,7 +126,6 @@ int packet_make()
  */
 int packet_send(int sockfd, struct head *phead)
 {
-	/* packet_make() */
 }
 
 /*
@@ -146,20 +161,27 @@ int client_init()
 /*
  * 客户端进行登录，连接并发送登录报文
  */
-int client_login(int sockfd, char *ip, u16 port)
+int client_login(int sockfd, char *ip, u16 port, u16 scid)
 {
 	int ret;
+	struct login_packet packet;
+
 	ret = socket_conect(sockfd, ip, port);
 	if(-1 == ret) {
-		fprintf(stderr, "[client_login]\n");
-		return -1;
+		goto err_ret;
 	}
 
-	while(1) {}
-	/* ret = packet_make() */
+	ret = packet_make((struct head*)&packet, scid, TYPE_LOGIN);
+	if(-1 == ret) {
+		goto err_ret;
+	}
 	/* ret = packet_send() */
 
 	return 0;
+
+err_ret:
+	fprintf(stderr, "[client_login]\n");
+	return -1;
 }
 
 /*
@@ -187,14 +209,17 @@ int main(int argc,char *argv[])
 {
 	int sockfd;
 	int ret;
+	int scid;
 
 	sockfd = client_init();
 	if(-1 == sockfd)
 		goto err_ret;
 
-	ret = client_login(sockfd, (char *)IP, PORT);
+	ret = client_login(sockfd, (char *)IP, PORT, scid);
 	if(-1 == ret)
 		goto free_sock;
+
+	close(sockfd);
 
 	return 0;
 
