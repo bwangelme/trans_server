@@ -85,31 +85,95 @@ err_ret:
 /*
  * 向某个套接字发送指定长度的报文
  */
-int socket_sendn()
+ssize_t socket_sendn(int sockfd, void *ptr, size_t len)
 {
+	ssize_t nsend, nleft;
+	unsigned char *vptr = NULL;
+
+	nleft = len;
+	vptr = (unsigned char *)ptr;
+
+	while(nleft > 0) {
+		nsend = send(sockfd, vptr, nleft, 0);
+		if(-1 == nsend) {
+			fprintf(stderr, "[socket_sendn]: %s\n",
+				strerror(errno));
+			if(nleft == len)
+				return -1;
+			else
+				return (len - nleft);
+		} else if(0 == nsend) {		/* EOF */
+			fprintf(stderr, "[socket_sendn]: %s\n",
+				"The peer socket has closed");
+			return (len - nleft);
+		}
+
+		nleft -= nsend;
+		vptr += nsend;
+	}
+
+	return (len - nleft);
 }
 
 /*
- * 从某个套接字接收指定长度的报文
+ * 从套接字中读取指定长度的报文
+ *
+ * @ret:	读取的字节长度，如果刚开始就出错，返回-1
  */
-int socket_recvn()
+ssize_t socket_recvn(int sockfd, void *ptr, size_t len)
 {
+	size_t nleft, nrecv;
+	unsigned char *vptr = NULL;
+
+	vptr = (unsigned char *)ptr;
+	nleft = len;
+
+	while(nleft > 0) {
+		nrecv = recv(sockfd, vptr, nleft, 0);
+		if(-1 == nrecv) {
+			fprintf(stderr, "[socket_recvn]: %s\n",
+				strerror(errno));
+			if(nleft == len) {
+				return -1;
+			} else {
+				return (len - nleft);
+			}
+		} else if(0 == nrecv) {
+			fprintf(stderr, "[socket_recvn]: %s\n",
+				"The peer socket has closed");
+			return (len - nleft);
+		}
+
+		vptr += nrecv;
+		nleft -= nrecv;
+	}
+
+	return (len - nleft);
 }
 
 /*
  * 制作登录包，数据包，退出包
  */
-int packet_make(struct head *head, u16 scid, u32 type)
+int packet_make(struct head *head, u16 scid, u32 type, u16 dcid)
 {
 	struct login_packet *lpack = NULL;
+	struct data_packet *dpack = NULL;
 
 	switch(type) {
 	case TYPE_LOGIN:
 		lpack = (struct login_packet *)head;
 		lpack->head.type = type;
-		lpack->head.dcid = 0;
+		lpack->head.dcid = dcid;
 		lpack->head.scid = scid;
 		lpack->head.len = HEAD_LEN;
+		break;
+	case TYPE_DATA:
+		dpack = (struct data_packet *)head;
+		bzero(dpack, BUF_LEN);
+		dpack->head.type = type;
+		dpack->head.dcid = dcid;
+		dpack->head.scid = scid;
+		dpack->head.len = BUF_LEN;
 		break;
 	default:
 		fprintf(stderr, "[packet_make]: %s\n", "invailed type");
@@ -123,21 +187,63 @@ int packet_make(struct head *head, u16 scid, u32 type)
  * 判断包的类型，发送相应长度的报文
  *
  * @sockfd:	套接字描述符
+ * @ret:	发送的字节长度
  */
 int packet_send(int sockfd, struct head *phead)
 {
+	int len;
+
+	switch(phead->type) {
+	case TYPE_LOGIN:
+		len = socket_sendn(sockfd, phead, HEAD_LEN);
+		if(len != HEAD_LEN) {
+			fprintf(stderr, "[packet_send]\n");
+			return -1;
+		}
+		break;
+	case TYPE_DATA:
+		len = socket_sendn(sockfd, phead, phead->len);
+		if(len != phead->len) {
+			fprintf(stderr, "[packet_send]\n");
+			return -1;
+		}
+		break;
+	default:
+		fprintf(stderr, "[packet_send]: %s\n",
+			"Invalid packet type");
+		return -1;
+	}
+
+	return len;
 }
 
 /*
- * 接收数据包或者响应包
+ * 接收指定类型的报文
+ *
  */
-int packet_recv(int sockfd, struct head *phead)
+int packet_recv(int sockfd, struct head *phead, u32 type, int oplen)
 {
-	/* socket_recvn(HEAD_LEN) */
-	/* //判断包的类型 */
-	/* socket_recvn(DATA_LEN) */
-	/* or */
-	/* socket_recvn(RESPONSE_LEN - HEAD_LEN); */
+	int len;
+
+	switch(type) {
+	case TYPE_RESPONSE:
+		len = RESPONSE_LEN;
+		break;
+	case TYPE_DATA:
+		/* len = oplen; */
+		break;
+	default:
+		fprintf(stderr, "[packet_recv]: %s\n",
+			"Invalid packet type");
+		return -1;
+	}
+
+	if(len != socket_recvn(sockfd, phead, len)) {
+		fprintf(stderr, "[packet_recv]\n");
+		return -1;
+	}
+
+	return 0;
 }
 
 /*
@@ -165,19 +271,32 @@ int client_login(int sockfd, char *ip, u16 port, u16 scid)
 {
 	int ret;
 	struct login_packet packet;
+	struct response_packet resp;
 
 	ret = socket_conect(sockfd, ip, port);
 	if(-1 == ret) {
 		goto err_ret;
 	}
 
-	ret = packet_make((struct head*)&packet, scid, TYPE_LOGIN);
+	ret = packet_make((struct head*)&packet, scid, TYPE_LOGIN, 0);
 	if(-1 == ret) {
 		goto err_ret;
 	}
-	/* ret = packet_send() */
 
-	return 0;
+	ret = packet_send(sockfd, (struct head *)&packet);
+	if(-1 == ret) {
+		goto err_ret;
+	}
+
+	ret = packet_recv(sockfd, (struct head *)&resp, TYPE_RESPONSE, 0);
+	if(-1 == ret) {
+		goto err_ret;
+	}
+	
+	if(STATUS_LOGIN == resp.status) {
+		printf("%d Login success\n", scid);
+		return 0;
+	}
 
 err_ret:
 	fprintf(stderr, "[client_login]\n");
@@ -187,15 +306,47 @@ err_ret:
 /*
  * 客户端进行数据的接收
  */
-int client_recv()
+void *client_recv(void *arg)
 {
+	int sockfd = *(int *)arg;
+	printf("Receive from the %d\n", sockfd);
+
+	return (void *)3;
 }
 
 /*
  * 客户端进行数据的发送
  */
-int client_send()
+void *client_send(void *arg)
 {
+	int sockfd = *(int *)arg;
+	struct data_packet *pdata = NULL;
+	int sendlen;
+	int i;
+	int dcid;
+
+	//Send PACKET_NUM packets
+	pdata = (struct data_packet *)malloc(BUF_LEN);
+	for(i = 0; i < PACKET_NUM; i++) {
+		dcid = 1000 - scid - i + 1;
+		if(-1 == packet_make((struct head *)pdata,
+				scid, TYPE_DATA, dcid)) {
+			goto err_ret;
+		}
+		sendlen = packet_send(sockfd, (struct head *)pdata);
+		if(-1 == sendlen) {
+			goto err_ret;
+		} else {
+			printf("Send %d bytes to %d\n", sendlen, dcid);
+		}
+	}
+
+	sleep(10);
+	return (void *)2;
+
+err_ret:
+	fprintf(stderr, "[client_send]\n");
+	return (void *)-1;
 }
 
 /*
@@ -209,23 +360,52 @@ int main(int argc,char *argv[])
 {
 	int sockfd;
 	int ret;
-	int scid;
+	pthread_t rtid, stid;
+	void *tret;
 
-	sockfd = client_init();
-	if(-1 == sockfd)
+	if(argc != 2) {
+		fprintf(stdout, "Usage: %s <scid>\n", argv[0]);
+		return 0;
+	}
+
+	sscanf(argv[1], "%hu", &scid);
+
+	ret = client_init();
+	if(-1 == ret)
 		goto err_ret;
+	sockfd = ret;
 
 	ret = client_login(sockfd, (char *)IP, PORT, scid);
 	if(-1 == ret)
 		goto free_sock;
 
-	close(sockfd);
+	ret = pthread_create(&stid, NULL, client_send, &sockfd);
+	if(ret != 0) {
+		goto free_sock;
+	}
+	ret = pthread_create(&rtid, NULL, client_recv, &sockfd);
+	if(ret != 0) {
+		fprintf(stderr, "%s\n", strerror(errno));
+		goto free_sock;
+	}
 
-	return 0;
+	ret = pthread_join(rtid, &tret);
+	if(ret != 0) {
+		goto free_sock;
+	} else {
+		printf("Receive thread quit with code %ld\n", (long)tret);
+	}
+	ret = pthread_join(stid, &tret);
+	if(ret != 0) {
+		goto free_sock;
+	} else {
+		printf("Send thread quit with code %ld\n", (long)tret);
+	}
 
 free_sock:
 	close(sockfd);
 err_ret:
-	fprintf(stderr, "[main]\n");
-	exit(EXIT_FAILURE);
+	if(ret != 0)
+		fprintf(stderr, "[main]: %s\n", strerror(ret));
+	return ret;
 }

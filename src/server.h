@@ -8,9 +8,32 @@ using namespace std;
 
 #define MAX_CLIENT 10240	//服务器能够接受的客户端的最大连接数
 #define MAX_EVENTS 20		//epoll listen event number
+#define PTHREAD_DETACH_CREATE(func, arg)\
+{					\
+	int 		err;		\
+	pthread_t	tid;		\
+	pthread_attr_t	attr;		\
+					\
+	err = pthread_attr_init(&attr);	\
+	if(err != 0) {			\
+		fprintf(stderr, "[pthread_detach_create]: %s\n", strerror(errno));\
+		return -1;		\
+	}				\
+	err = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);	\
+	if(0 == err)			\
+		err = pthread_create(&tid, &attr, (func), (arg));		\
+	pthread_attr_destroy(&attr);	\
+}
 
 struct s_key {
 	u16 cid;
+	bool operator <(const struct s_key &other)const
+	{
+		if(cid < other.cid)
+			return true;
+		else
+			return false;
+	}
 };
 
 struct data_node {
@@ -32,6 +55,6 @@ struct s_value {
 };
 
 map<struct s_key, struct s_value> usermap;	//用来存储cid和用户的映射
-vector<u16> f2c;				//用来存储cid和fd的映射
+map<int, u16> f2c;				//用来存储cid和fd的映射
 
 #endif /* server.h */

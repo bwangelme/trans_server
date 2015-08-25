@@ -40,9 +40,11 @@ struct response_packet {
 #define RESPONSE_LEN HEAD_LEN+sizeof(u32)
 #define TIMEOUT 20
 
-#define TYPE_LOGIN 	0x00000001
-#define TYPE_DATA  	0x00000002
-#define TYPE_EXIT  	0x00000003
-#define TYPE_RESPONSE   0x00000004
+#define STATUS_LOGIN	0x00000011  //登录成功
+
+#define TYPE_LOGIN 	0xff000001
+#define TYPE_DATA  	0xff000002
+#define TYPE_EXIT  	0xff000003
+#define TYPE_RESPONSE   0xff000004
 
 #endif

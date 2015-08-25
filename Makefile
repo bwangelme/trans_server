@@ -4,8 +4,8 @@ SRC := ./src/
 
 server:
 	make server.o -j2 -C $(SRC)
-	g++ -o server $(SRC)server.o
+	g++ -o server $(SRC)server.o -lpthread
 
 client:
 	make client.o -j2 -C $(SRC)
-	g++ -o client $(SRC)client.o
+	gcc -o client $(SRC)client.o -lpthread

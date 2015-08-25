@@ -3,18 +3,20 @@
  *   server_epoll
  *        \
  *        \ --- 控制
- *        \
- *	server(o)
- *	  | -------  |  ------ | -------- |
- *     usermap(go) f2c(go)   addr   threadpool(o)
- *	  |	       
- *	user(o)
- *	  | ---------- | ------ | 
- *    packet_list(o)  fd     online
- *	  |
- *	packet(o)
- *	  |
- *	socket(o)
+ *        \                     Receive function
+ *	server(o) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~+
+ *	  | -------  |  ------ | -------- |		    |
+ *     usermap(go) f2c(go)   addr   threadpool(o)	    |
+ *	  |	     ^					    |
+ *	  |	     |					    |
+ *	user(o) ~~~~~+ 影响				    |
+ *	  |						    |
+ *	  | ---------- | ------ | 			    |
+ *    packet_list(o)  fd     online			    |
+ *	  |						    |
+ *	packet(o)					    |
+ *	  |						    |
+ *	socket(o) <~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~+
  *
  * usermap: 用户和cid的映射，为了以后添加新的键元素，所以用结构体来保存键
  * f2c:	fd到cid的映射
@@ -98,20 +100,92 @@ ret:
  */
 int socket_accept(int listenfd)
 {
-}
+	struct sockaddr_in add;
+	socklen_t len = sizeof(add);
+	int connect_fd;
+	char ipstr[16];
 
-/*
- * 向套接字发送指定长度的报文
- */
-int socket_recvn()
-{
+	bzero(&add, sizeof(add));
+	bzero(ipstr, 16);
+	connect_fd = accept(listenfd, (struct sockaddr *)&add, &len);
+	if(-1 == connect_fd) {
+		fprintf(stderr, "[socket_accept]: %s\n", strerror(errno));
+		return -1;
+	}
+	printf("%s %d connected\n",
+		inet_ntop(AF_INET, &add.sin_addr, ipstr, sizeof(add)),
+		ntohs(add.sin_port));
+
+	return connect_fd;
 }
 
 /*
  * 从套接字中读取指定长度的报文
+ *
+ * @ret:	读取的字节长度，如果刚开始就出错，返回-1
  */
-int socket_sendn()
+ssize_t socket_recvn(int sockfd, void *ptr, size_t len)
 {
+	size_t nleft, nrecv;
+	unsigned char *vptr = NULL;
+
+	vptr = (unsigned char *)ptr;
+	nleft = len;
+
+	while(nleft > 0) {
+		nrecv = recv(sockfd, vptr, nleft, 0);
+		if(-1 == nrecv) {
+			fprintf(stderr, "[socket_recvn]: %s\n",
+				strerror(errno));
+			if(nleft == len) {
+				return -1;
+			} else {
+				return (len - nleft);
+			}
+		} else if(0 == nrecv) {
+			fprintf(stderr, "[socket_recvn]: %s\n",
+				"The peer socket has closed");
+			return (len - nleft);
+		}
+
+		vptr += nrecv;
+		nleft -= nrecv;
+	}
+
+	return (len - nleft);
+}
+
+/*
+ * 向某个套接字发送指定长度的报文
+ */
+ssize_t socket_sendn(int sockfd, void *ptr, size_t len)
+{
+	ssize_t nsend, nleft;
+	unsigned char *vptr = NULL;
+
+	nleft = len;
+	vptr = (unsigned char *)ptr;
+
+	while(nleft > 0) {
+		nsend = send(sockfd, vptr, nleft, 0);
+		if(-1 == nsend) {
+			fprintf(stderr, "[socket_sendn]: %s\n",
+				strerror(errno));
+			if(nleft == len)
+				return -1;
+			else
+				return (len - nleft);
+		} else if(0 == nsend) {		/* EOF */
+			fprintf(stderr, "[socket_sendn]: %s\n",
+				"The peer socket has closed");
+			return (len - nleft);
+		}
+
+		nleft -= nsend;
+		vptr += nsend;
+	}
+
+	return (len - nleft);
 }
 
 /*
@@ -122,31 +196,98 @@ int socket_close(int sockfd)
 }
 
 /*
- * 接收报文
+ * 设置一个指定类型的包
  */
-int packet_recv(struct head *phead)
+int packet_make(struct head *phead, u32 type)
 {
-	//首先读个头，然后再按照头中的类型进行相应的读取
-	socket_recvn();
+	struct response_packet *pres;
+
+	switch(type) {
+	case TYPE_RESPONSE:
+		pres = (struct response_packet *)phead;
+		pres->status = STATUS_LOGIN;
+		pres->head.type = TYPE_RESPONSE;
+		pres->head.dcid = 0;
+		pres->head.scid = 0;
+		pres->head.len = RESPONSE_LEN;
+		break;
+	default:
+		fprintf(stderr, "[packet_make]: %s\n",
+			"Packet type error");
+		return -1;
+	}
 }
 
 /*
- * 发送报文
+ * 接收指定类型的报文
+ *
+ * @oplen:	可选的，除去头之后，附加内容的长度
  */
-int packet_send(struct head *phead)
+int packet_recv(int sockfd, struct head *phead, u32 type, int oplen = 0)
 {
-	//判断头的类型，然后再进行相应的发送
-	/* socket_sendn(); */
+	int len;
+
+	switch(type) {
+	case TYPE_LOGIN:
+		len = HEAD_LEN;
+		break;
+	case TYPE_DATA:
+		len = oplen;
+		break;
+	default:
+		fprintf(stderr, "[packet_recv]: %s\n",
+			"Invalid packet type");
+		return -1;
+	}
+
+	if(len != socket_recvn(sockfd, phead, len)) {
+		fprintf(stderr, "[packet_recv]\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+/*
+ * 判断包的类型，发送相应长度的报文
+ *
+ * @sockfd:	套接字描述符
+ * @ret:	发送的字节长度
+ */
+int packet_send(int sockfd, struct head *phead)
+{
+	int len;
+
+	switch(phead->type) {
+	case TYPE_RESPONSE:
+		len = socket_sendn(sockfd, phead, RESPONSE_LEN);
+		if(len != RESPONSE_LEN) {
+			fprintf(stderr, "[packet_send]\n");
+			return -1;
+		}
+		break;
+	case TYPE_DATA:
+		break;
+	default:
+		fprintf(stderr, "[packet_send]: %s\n",
+			"Invalid packet type");
+		return -1;
+	}
+
+	return len;
 }
 
 /*
  * 初始化数据包列表
  */
-int list_init()
+int list_init(struct data_list *plist)
 {
-	/* lock = ; */
-	/* head = ; */
-	/* count = 0; */
+	plist->lock = PTHREAD_MUTEX_INITIALIZER;
+	plist->head = NULL;
+	plist->tail = NULL;
+	plist->count = 0;
+
+	return 0;
 }
 
 /*
@@ -166,14 +307,61 @@ int list_pop()
 }
 
 /*
+ * 向f2c数组中添加fd -- cid对
+ */
+int f2c_add(int sockfd, u16 cid)
+{
+	auto iter = f2c.find(sockfd);
+	if(iter == f2c.end()) {	/* 该fd不存在 */
+		auto ret = f2c.insert(make_pair(sockfd, cid));
+		if(!ret.second) {
+			fprintf(stderr, "[f2c.insert]\n");
+			goto err_ret;
+		}
+	} else {
+		goto err_ret;
+	}
+
+	return 0;
+err_ret:
+	fprintf(stderr, "[f2c_add]\n");
+	return -1;
+}
+
+/*
+ * 将f2c数组中的fd -- cid对删除
+ *
+ * 即将fd对应的值设置为-1
+ */
+int f2c_delete(int fd)
+{
+}
+
+/*
+ * 给出fd，查询f2c数组中的cid
+ *
+ * @ret:	cid
+ */
+u16 f2c_query(int sockfd)
+{
+	return f2c[sockfd];
+}
+
+/*
  * 对用户进行初始化
  *
- * @sockfd:	这个用户所对应的套接字描述符
  */
-int user_init(int sockfd)
+int user_init(struct s_value *pvalue)
 {
-	/* fd =sockfd; */
-	/* list_init() */
+	int ret;
+
+	ret = list_init(&pvalue->list);
+	if(-1 == ret) {
+		fprintf(stderr, "[user_init]\n");
+		return -1;
+	}
+
+	return 0;
 }
 
 /*
@@ -186,11 +374,31 @@ int user_logout()
 }
 
 /*
- * 将相应用户的在线标志设置为1同时也将fd和cid的映射添加到f2c中
+ * 将相应用户的在线标志设置为1,设置上用户的套接字描述符
+ * 同时也将fd和cid的映射添加到f2c中
  */
-int user_login()
+int user_login(struct s_key key, int sockfd, u32 cid)
 {
-	/* f2c_add(); */
+	int ret;
+
+	auto iter = usermap.find(key);
+	if(iter != usermap.end()) {
+		iter->second.online = 1;
+		iter->second.fd = sockfd;
+	} else {
+		fprintf(stderr, "[user_login]: %s\n",
+			"Cann't find the key");
+		return -1;
+	}
+
+	ret = f2c_add(sockfd, cid);
+	if(-1 == ret) {
+		fprintf(stderr, "[user_login]\n");
+		return -1;
+	}
+
+	printf("%d -- %d Login\n", usermap[key].fd, key.cid);
+	return 0;
 }
 
 /*
@@ -198,7 +406,7 @@ int user_login()
  */
 int user_data_add()
 {
-	/* list_add() */
+	list_add();
 }
 
 /*
@@ -217,36 +425,42 @@ int user_is_onlie()
 }
 
 /*
- * 向cmap中添加新的用户
+ * 向usermap中添加新的用户
  */
-int usermap_add_user()
+int usermap_add_user(int sockfd, u16 cid)
 {
-	/* user_init(); */
-}
+	struct s_key key = { cid };
+	struct s_value value;
+	int ret;
 
-/*
- * 向f2c数组中添加fd -- cid对
- */
-int f2c_add(int fd, u16 cid)
-{
-}
+	auto iter = usermap.find(key);
+	if(iter == usermap.end()) {	/* 用户不存在 */
+		ret = user_init(&value);
+		if(-1 == ret) {
+		//这里不能用goto是因为goto后面不能有新的变量定义
+			fprintf(stderr, "[usermap_add_user]\n");
+			return -1;
+		}
 
-/*
- * 将f2c数组中的fd -- cid对删除
- *
- * 即将fd对应的值设置为-1
- */
-int f2c_delete(int fd)
-{
-}
+		auto mret = usermap.insert(make_pair(key, value));
+		if(!mret.second) {
+			fprintf(stderr, "[usermap.insert]\n");
+			goto err_ret;
+		}
+	} else {
+		fprintf(stdout, "[usermap_add_user]: %s\n",
+			"User exist");
+	}
 
-/*
- * 给出fd，查询f2c数组中的cid
- *
- * @ret:	cid
- */
-int f2c_query(int fd)
-{
+	ret = user_login(key, sockfd, cid);
+	if(-1 == ret)
+		goto err_ret;
+
+	return 0;
+
+err_ret:
+	fprintf(stderr, "[usermap_add_user]\n");
+	return -1;
 }
 
 /*
@@ -370,29 +584,98 @@ err_ret:
 }
 
 /*
+ * 服务器发送相应报文
+ */
+int server_response(int sockfd)
+{
+	struct response_packet response;	
+
+	if(-1 == packet_make((struct head *)&response, TYPE_RESPONSE)) {
+		fprintf(stderr, "[server_response]\n");
+		return -1;
+	}
+
+	if(-1 == packet_send(sockfd, (struct head *)&response)) {
+		fprintf(stderr, "[server_response]\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+/*
  * 服务器接收一个新的用户的登录
  */
-int server_accept()
+int server_accept(int listenfd)
 {
-	/* socket_accept(); */
-	/* packet_recv(login_packet); */
-	/* cmap_add_user(); */
-	/* user_login(); */
+	struct login_packet packet;
+	int sockfd;
+
+	sockfd = socket_accept(listenfd);
+	if(-1 == sockfd)
+		goto err_ret;
+
+	if(-1 == packet_recv(sockfd, (struct head *)&packet, TYPE_LOGIN))
+		goto err_ret;
+
+	if(-1 == usermap_add_user(sockfd, packet.head.scid))
+		goto err_ret;
+
+	if(-1 == server_response(sockfd)) {
+		goto err_ret;
+	}
+
+	return sockfd;
+err_ret:
+	fprintf(stderr, "[server_accept]\n");
+	return -1;
+}
+
+/*
+ * 服务器关闭与当前用户的连接
+ */
+int server_close()
+{
+	/* user_logout() */
 }
 
 /*
  * 服务器从用户那里接收数据报文并存储到用户数据包列表中
+ * 或者接收到用户退出报文，关闭与这个用户的连接
+ *
  */
-int server_recvive()
+void *server_recvive(void *arg)
 {
-	//申请数据报文的空间
-	/* packet_recv(); */
+	int sockfd = *(int *)arg;
+	struct head head;
+	struct data_packet *pdata = NULL;
+	unsigned char *htmp = NULL;
 
-	//如果发送过来的是退出报文，则user_logout
-	/* if(type = exit) */
-	/* 	user_logout() */
-	/* else */
-	/* 	user_data_add(); */
+	if(HEAD_LEN != socket_recvn(sockfd, &head, HEAD_LEN)) {
+		fprintf(stderr, "[server_recvive]: %d\n", sockfd);
+		exit(EXIT_FAILURE);
+	}
+
+	if(TYPE_EXIT == head.type) {   /* Exit packet */
+		printf("Receive the exit packet\n");
+		server_close();
+	} else if(TYPE_DATA == head.type) {
+		pdata = (struct data_packet *)malloc(head.len);
+		pdata->head = head;
+		htmp = (unsigned char *)pdata;
+		htmp += HEAD_LEN;
+		packet_recv(sockfd, (struct head *)htmp,
+				TYPE_DATA, head.len - HEAD_LEN);
+		printf("Receive %d bytes[%d]\n", head.len - HEAD_LEN, head.dcid);
+		free(pdata);
+		/* user_data_add(head.dcid); */
+	} else {
+		fprintf(stderr, "[server_recvive]: %s\n",
+			"Packet type error");
+		exit(EXIT_FAILURE);
+	}
+
+	return (void *)0;
 }
 
 /*
@@ -408,7 +691,7 @@ int server_send()
 
 int main(int argc, char *argv[])
 {
-	int listenfd;
+	int listenfd, sockfd;
 	int epollfd;
 	int ret, n, i, err = 0;
 	struct epoll_event events[MAX_EVENTS];
@@ -434,32 +717,41 @@ int main(int argc, char *argv[])
 	}
 
 	for(;;) {
-		n = server_epoll_wait(epollfd, events, MAX_EVENTS);
-		for(i = 0; i < n; i++) {
-			if( (events[i].events & EPOLLERR) ||
-			    (events[i].events & EPOLLHUP) ||
-			    (!(events[i].events & EPOLLIN)) ) {
-				fprintf(stderr, "[main]: %d epoll error",
+
+	n = server_epoll_wait(epollfd, events, MAX_EVENTS);
+	for(i = 0; i < n; i++) {
+		if(events[i].events & EPOLLERR ||
+		   events[i].events & EPOLLHUP) {
+			fprintf(stderr, "[main]: %d epoll error\n",
+				events[i].data.fd);
+			close(events[i].data.fd);
+		} else if(events[i].data.fd == listenfd) {
+			sockfd = server_accept(listenfd);
+			if(-1 == sockfd) {
+				err = 1;
+				goto free_sockfd;
+			}
+			if(-1 == server_epoll_add(epollfd, sockfd,
+				EPOLLIN | EPOLLOUT | EPOLLET)) {
+				err = 1;
+				goto free_sockfd;
+			}
+		} else {
+			if(events[i].events & EPOLLIN) {
+				PTHREAD_DETACH_CREATE(server_recvive,
+					&events[i].data.fd)
+			} else if (events[i].events & EPOLLOUT) {
+				printf("Write to %d\n",
 					events[i].data.fd);
-				close(events[i].data.fd);
-			} else if(events[i].data.fd == listenfd) {
-				printf("Accept -- \n");
-				/* server_accept(); */
-			} else {
-				if(events[i].events & EPOLLIN) {
-					printf("Read from %d\n",
-						events[i].data.fd);
-				} else if (events[i].events & EPOLLOUT) {
-					printf("Write to %d\n",
-						events[i].data.fd);
-				}
 			}
 		}
 	}
 
+	}
 
-	close(epollfd);
+
 free_sockfd:
+	close(epollfd);
 	close(listenfd);
 	if(1 == err)
 		goto err_ret;
