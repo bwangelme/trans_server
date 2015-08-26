@@ -340,6 +340,7 @@ void *client_send(void *arg)
 			printf("Send %d bytes to %d\n", sendlen, dcid);
 		}
 	}
+	free(data);
 
 	sleep(10);
 	return (void *)2;

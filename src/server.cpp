@@ -123,6 +123,8 @@ int socket_accept(int listenfd)
  * 从套接字中读取指定长度的报文
  *
  * @ret:	读取的字节长度，如果刚开始就出错，返回-1
+ *
+ * notice:	non-blcok socket will meet EAGAIN error
  */
 ssize_t socket_recvn(int sockfd, void *ptr, size_t len)
 {
@@ -135,6 +137,8 @@ ssize_t socket_recvn(int sockfd, void *ptr, size_t len)
 	while(nleft > 0) {
 		nrecv = recv(sockfd, vptr, nleft, 0);
 		if(-1 == nrecv) {
+			if(errno == EAGAIN || EWOULDBLOCK == errno)
+				continue;
 			fprintf(stderr, "[socket_recvn]: %s\n",
 				strerror(errno));
 			if(nleft == len) {
@@ -293,8 +297,27 @@ int list_init(struct data_list *plist)
 /*
  * 向一个数据链表中添加数据报文
  */
-int list_add()
+int list_add(struct s_key key, struct data_packet *pdata)
 {
+	struct data_node *pnode = NULL;
+	pnode = (struct data_node *)malloc(sizeof(struct data_node));
+
+	pnode->pack = pdata;
+	pnode->next = NULL;
+
+	pthread_mutex_lock(&usermap[key].list.lock);
+	if(NULL == usermap[key].list.head && 
+		usermap[key].list.tail == NULL) {
+		usermap[key].list.head = pnode;
+		usermap[key].list.tail = pnode;
+		pnode->prev = NULL;
+	} else {
+		pnode->prev = usermap[key].list.tail;
+		usermap[key].list.tail->next = pnode;
+		usermap[key].list.tail = pnode;
+	}
+	printf("Add packet %d to %d\n", usermap[key].list.tail->pack->head.dcid, key.cid);
+	pthread_mutex_unlock(&usermap[key].list.lock);
 }
 
 /*
@@ -404,9 +427,9 @@ int user_login(struct s_key key, int sockfd, u32 cid)
 /*
  * 向用户的数据包列表中添加数据包
  */
-int user_data_add()
+int user_data_push(struct s_key key, struct data_packet *pdata)
 {
-	list_add();
+	list_add(key, pdata);
 }
 
 /*
@@ -644,45 +667,48 @@ int server_close()
 }
 
 /*
- * 服务器从用户那里接收数据报文并存储到用户数据包列表中
- * 或者接收到用户退出报文，关闭与这个用户的连接
+ * 1. 服务器从用户那里接收[数据]报文并存储到用户数据包列表中
+ * or
+ * 2. 接收到用户[退出]报文，关闭与这个用户的连接
  *
  */
 void *server_recvive(void *arg)
 {
 	int sockfd = *(int *)arg;
-	struct head head;
-	struct data_packet *pdata = NULL;
-	unsigned char *htmp = NULL;
+	struct head *phead = NULL;
+	struct s_key key;
+	int len;
 
-	if(HEAD_LEN != socket_recvn(sockfd, &head, HEAD_LEN)) {
-		fprintf(stderr, "[server_recvive]: %d\n", sockfd);
-		exit(EXIT_FAILURE);
-	} else {
-		printf("Receive a head[%d]\n", head.dcid);
-	}
+	phead = (struct head *)malloc(BUF_LEN);
 
-	if(TYPE_EXIT == head.type) {   /* Exit packet */
-		printf("Receive the exit packet\n");
-		server_close();
-	} else if(TYPE_DATA == head.type) {
-		pdata = (struct data_packet *)malloc(head.len);
-		pdata->head = head;
-		htmp = (unsigned char *)pdata;
-		htmp += HEAD_LEN;
-		packet_recv(sockfd, (struct head *)htmp,
-				TYPE_DATA, head.len - HEAD_LEN);
-		printf("Receive %d bytes[%d]\n", head.len - HEAD_LEN, head.dcid);
-		free(pdata);
-		/* user_data_add(head.dcid); */
-	} else if(TYPE_LOGIN == head.type) {
-		fprintf(stderr, "Read packet Error\n");
-		exit(EXIT_FAILURE);
+	len = socket_recvn(sockfd, phead, BUF_LEN); /* Read a packet */
+	if(HEAD_LEN == len) {
+		if(TYPE_EXIT == phead->type) { /* Exit packet */
+			printf("Receive the exit packet\n");
+			server_close();
+		} else {
+			fprintf(stderr, "[server_recvive]: %s\n",
+					"Exit Packet Error");
+			exit(EXIT_FAILURE);
+		}
+	} else if(BUF_LEN == len) {
+		if(TYPE_DATA == phead->type) { /* Data packet */
+			printf("Receive %d bytes[%d]\n",
+				phead->len - HEAD_LEN, phead->dcid);
+			key.cid = phead->dcid;
+			user_data_push(key, (struct data_packet *)phead);
+		} else {
+			fprintf(stderr, "[server_recvive]: %s\n",
+					"Buf Packet Error");
+			exit(EXIT_FAILURE);
+		}
 	} else {
 		fprintf(stderr, "[server_recvive]: %s\n",
-			"Packet type error");
+			"Packet lenth error");
 		exit(EXIT_FAILURE);
 	}
+
+	free(phead);
 
 	return (void *)0;
 }
@@ -721,6 +747,7 @@ int main(int argc, char *argv[])
 
 	if(-1 == server_epoll_add(epollfd, listenfd,
 			EPOLLIN | EPOLLET)) {  //采用边缘触发模式
+			/* EPOLLIN)) {	//Level triged */
 		err = 1;
 		goto free_sockfd;
 	}
@@ -741,18 +768,16 @@ int main(int argc, char *argv[])
 				goto free_sockfd;
 			}
 			if(-1 == server_epoll_add(epollfd, sockfd,
-				EPOLLIN | EPOLLOUT | EPOLLET)) {
+				/* EPOLLIN | EPOLLOUT | EPOLLET)) { */
+				EPOLLIN | EPOLLOUT)) { //Level triged
 				err = 1;
 				goto free_sockfd;
 			}
 		} else {
 			if(events[i].events & EPOLLIN) {
-				printf("%d can read\n", events[i].data.fd);
 				PTHREAD_DETACH_CREATE(server_recvive,
 					&events[i].data.fd)
 			} else if (events[i].events & EPOLLOUT) {
-				printf("Write to %d\n",
-					events[i].data.fd);
 			}
 		}
 	}

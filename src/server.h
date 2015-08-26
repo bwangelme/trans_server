@@ -39,6 +39,7 @@ struct s_key {
 struct data_node {
 	struct data_packet *pack;
 	struct data_node *next;
+	struct data_node *prev;
 };
 
 struct data_list {
