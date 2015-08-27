@@ -309,6 +309,7 @@ err_ret:
 void *client_recv(void *arg)
 {
 	int sockfd = *(int *)arg;
+	sleep(5);
 	printf("Receive from the %d\n", sockfd);
 
 	return (void *)3;
@@ -324,10 +325,14 @@ void *client_send(void *arg)
 	int sendlen;
 	int i;
 	int dcid;
+	int packet_num;
 
-	//Send PACKET_NUM packets
+	printf("Please enter the packet_num: ");
+	scanf("%d", &packet_num);
+
+	//Send packet_num packets
 	pdata = (struct data_packet *)malloc(BUF_LEN);
-	for(i = 0; i < PACKET_NUM; i++) {
+	for(i = 0; i < packet_num; i++) {
 		dcid = 1000 - scid - i + 1;
 		if(-1 == packet_make((struct head *)pdata,
 				scid, TYPE_DATA, dcid)) {
@@ -340,9 +345,9 @@ void *client_send(void *arg)
 			printf("Send %d bytes to %d\n", sendlen, dcid);
 		}
 	}
-	free(data);
+	free(pdata);
 
-	sleep(10);
+	sleep(5);
 	return (void *)2;
 
 err_ret:

@@ -674,7 +674,7 @@ int server_close()
  * 2. 接收到用户[退出]报文，关闭与这个用户的连接
  *
  */
-void *server_recvive(void *arg)
+void *server_receive(void *arg)
 {
 	int sockfd = *(int *)arg;
 	struct head *phead = NULL;
@@ -685,34 +685,35 @@ void *server_recvive(void *arg)
 
 	while(1) {
 
-	len = socket_recvn(sockfd, phead, BUF_LEN); /* Read a packet */
-	if(HEAD_LEN == len) {
-		if(TYPE_EXIT == phead->type) { /* Exit packet */
-			printf("Receive the exit packet\n");
-			server_close();
-		} else {
-			fprintf(stderr, "[server_recvive]: %s\n",
-					"Exit Packet Error");
-			exit(EXIT_FAILURE);
-		}
-	} else if(BUF_LEN == len) {
-		if(TYPE_DATA == phead->type) { /* Data packet */
-			printf("Receive %d bytes[%d]\n",
-				phead->len - HEAD_LEN, phead->dcid);
-			key.cid = phead->dcid;
-			user_data_push(key, (struct data_packet *)phead);
-		} else {
-			fprintf(stderr, "[server_recvive]: %s\n",
-					"Buf Packet Error");
-			exit(EXIT_FAILURE);
-		}
+	len = socket_recvn(sockfd, phead, HEAD_LEN); /* Read a head */
+	if(-1 == len) {
+		fprintf(stderr, "[server_receive]\n");
+		exit(EXIT_FAILURE);
 	} else if(SOCKET_NULL == len) {
 	/* socket buffer read null */
 		printf("Read socket null\n");
 		break;
+	}
+
+	if(TYPE_EXIT == phead->type) { /* Exit packet */
+		printf("Receive the exit packet\n");
+		server_close();
+	} else if(TYPE_DATA == phead->type) { /* Data packet */
+		printf("Receive %d bytes[%d]\n",
+			phead->len - HEAD_LEN, phead->dcid);
+		len = socket_recvn(sockfd,
+			(unsigned char *)phead + HEAD_LEN,
+			phead->len - HEAD_LEN);
+		if(-1 == len) {
+			fprintf(stderr, "[server_receive]: %s\n",
+				"Read data failed\n");
+			exit(EXIT_FAILURE);
+		}
+		key.cid = phead->dcid;
+		user_data_push(key, (struct data_packet *)phead);
 	} else {
-		fprintf(stderr, "[server_recvive]: %s\n",
-			"Packet lenth error");
+		fprintf(stderr, "[server_receive]: %s\n",
+			"Packet type error");
 		exit(EXIT_FAILURE);
 	}
 
@@ -756,7 +757,6 @@ int main(int argc, char *argv[])
 
 	if(-1 == server_epoll_add(epollfd, listenfd,
 			EPOLLIN | EPOLLET)) {  //采用边缘触发模式
-			/* EPOLLIN)) {	//Level triged */
 		err = 1;
 		goto free_sockfd;
 	}
@@ -778,13 +778,12 @@ int main(int argc, char *argv[])
 			}
 			if(-1 == server_epoll_add(epollfd, sockfd,
 				EPOLLIN | EPOLLOUT | EPOLLET)) {
-				/* EPOLLIN | EPOLLOUT)) {//Level triged */
 				err = 1;
 				goto free_sockfd;
 			}
 		} else {
 			if(events[i].events & EPOLLIN) {
-				PTHREAD_DETACH_CREATE(server_recvive,
+				PTHREAD_DETACH_CREATE(server_receive,
 					&events[i].data.fd)
 			} else if (events[i].events & EPOLLOUT) {
 			}
@@ -792,7 +791,6 @@ int main(int argc, char *argv[])
 	}
 
 	}
-
 
 free_sockfd:
 	close(epollfd);
