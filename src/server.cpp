@@ -768,15 +768,24 @@ int main(int argc, char *argv[])
 				goto free_sockfd;
 			}
 			if(-1 == server_epoll_add(epollfd, sockfd,
-				/* EPOLLIN | EPOLLOUT | EPOLLET)) { */
-				EPOLLIN | EPOLLOUT)) { //Level triged
+				EPOLLIN | EPOLLOUT | EPOLLET)) {
+				/* EPOLLIN | EPOLLOUT)) {//Level triged */
 				err = 1;
 				goto free_sockfd;
 			}
 		} else {
 			if(events[i].events & EPOLLIN) {
-				PTHREAD_DETACH_CREATE(server_recvive,
-					&events[i].data.fd)
+				/* PTHREAD_DETACH_CREATE(server_recvive, */
+				/* 	&events[i].data.fd) */
+				int ret;
+				char buf[BUFSIZ];
+				while(1) {
+					ret = read(events[i].data.fd, buf, BUFSIZ);
+					printf("Read %d bytes\n", ret);
+					if(-1 == ret && EAGAIN == errno)
+						perror("Error: ");
+					sleep(1);
+				}
 			} else if (events[i].events & EPOLLOUT) {
 			}
 		}
