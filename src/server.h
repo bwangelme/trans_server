@@ -10,6 +10,7 @@ using namespace std;
 #define MAX_EVENTS 20		//epoll listen event number
 
 #define SOCKET_NULL 0xee000001  //套接字读空了
+#define LIST_NULL 0xee000002	//用户的当前链表为空
 
 #define PTHREAD_DETACH_CREATE(func, arg)\
 {					\

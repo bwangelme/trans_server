@@ -221,7 +221,7 @@ int packet_send(int sockfd, struct head *phead)
  * 接收指定类型的报文
  *
  */
-int packet_recv(int sockfd, struct head *phead, u32 type, int oplen)
+int packet_recv(int sockfd, struct head *phead, u32 type)
 {
 	int len;
 
@@ -230,7 +230,7 @@ int packet_recv(int sockfd, struct head *phead, u32 type, int oplen)
 		len = RESPONSE_LEN;
 		break;
 	case TYPE_DATA:
-		/* len = oplen; */
+		len = BUF_LEN;
 		break;
 	default:
 		fprintf(stderr, "[packet_recv]: %s\n",
@@ -243,7 +243,7 @@ int packet_recv(int sockfd, struct head *phead, u32 type, int oplen)
 		return -1;
 	}
 
-	return 0;
+	return len;
 }
 
 /*
@@ -288,7 +288,7 @@ int client_login(int sockfd, char *ip, u16 port, u16 scid)
 		goto err_ret;
 	}
 
-	ret = packet_recv(sockfd, (struct head *)&resp, TYPE_RESPONSE, 0);
+	ret = packet_recv(sockfd, (struct head *)&resp, TYPE_RESPONSE);
 	if(-1 == ret) {
 		goto err_ret;
 	}
@@ -309,8 +309,21 @@ err_ret:
 void *client_recv(void *arg)
 {
 	int sockfd = *(int *)arg;
-	sleep(5);
-	printf("Receive from the %d\n", sockfd);
+	struct data_packet *pdata = NULL;
+	int len = 1;
+
+	pdata = (struct data_packet *)malloc(BUF_LEN);
+	while(len != 0) {
+		len = packet_recv(sockfd,
+				(struct head *)pdata, TYPE_DATA);
+		if(-1 == len) {
+			fprintf(stderr, "[client_recv]\n");
+			exit(-1);
+		}
+		printf("Recv %d bytes from the %d",
+			len, pdata->head.scid);
+	}
+	free(pdata);
 
 	return (void *)3;
 }
@@ -327,13 +340,16 @@ void *client_send(void *arg)
 	int dcid;
 	int packet_num;
 
+	while(1) {
+
 	printf("Please enter the packet_num: ");
 	scanf("%d", &packet_num);
 
 	//Send packet_num packets
 	pdata = (struct data_packet *)malloc(BUF_LEN);
 	for(i = 0; i < packet_num; i++) {
-		dcid = 1000 - scid - i + 1;
+		/* dcid = 1000 - scid - i + 1; */
+		dcid = scid;	//Send to me
 		if(-1 == packet_make((struct head *)pdata,
 				scid, TYPE_DATA, dcid)) {
 			goto err_ret;
@@ -347,7 +363,8 @@ void *client_send(void *arg)
 	}
 	free(pdata);
 
-	sleep(5);
+	}
+
 	return (void *)2;
 
 err_ret:

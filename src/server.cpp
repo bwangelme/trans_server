@@ -124,7 +124,6 @@ int socket_accept(int listenfd)
  *
  * @ret:	读取的字节长度，如果刚开始就出错，返回-1
  *
- * notice:	non-blcok socket will meet EAGAIN error
  */
 ssize_t socket_recvn(int sockfd, void *ptr, size_t len)
 {
@@ -273,6 +272,13 @@ int packet_send(int sockfd, struct head *phead)
 		}
 		break;
 	case TYPE_DATA:
+		len = socket_sendn(sockfd, phead, phead->len);
+		if(len != phead->len) {
+			fprintf(stderr, "[packet_send]\n");
+			free(phead);
+			return -1;
+		}
+		free(phead);
 		break;
 	default:
 		fprintf(stderr, "[packet_send]: %s\n",
@@ -299,7 +305,7 @@ int list_init(struct data_list *plist)
 /*
  * 向一个数据链表中添加数据报文
  */
-int list_add(struct s_key key, struct data_packet *pdata)
+int list_push(struct s_key key, struct data_packet *pdata)
 {
 	struct data_node *pnode = NULL;
 	pnode = (struct data_node *)malloc(sizeof(struct data_node));
@@ -325,10 +331,36 @@ int list_add(struct s_key key, struct data_packet *pdata)
 /*
  * 从一个数据链表中弹出数据报文并发送
  */
-int list_pop()
+int list_pop(int sockfd, struct s_key key)
 {
-	/* packet_send(); */
-	//释放数据报文的空间
+	struct data_node *pnode = NULL;
+	int ret;
+
+	pthread_mutex_lock(&usermap[key].list.lock);
+	if(NULL == usermap[key].list.head && 
+		usermap[key].list.tail == NULL) {
+		printf("The list is null[%d]\n", key.cid);
+		pthread_mutex_unlock(&usermap[key].list.lock);
+		return LIST_NULL;
+	} else {
+		pnode = usermap[key].list.tail;
+		usermap[key].list.tail = pnode->prev;
+		usermap[key].list.tail->next = NULL;
+	}
+	printf("Pop packet %d from %d\n",
+		usermap[key].list.tail->pack->head.scid, key.cid);
+	pthread_mutex_unlock(&usermap[key].list.lock);
+
+	ret = packet_send(sockfd, (struct head *)(pnode->pack));
+	if(-1 == ret) {
+		fprintf(stderr, "[list_pop]\n");
+		free(pnode);
+		return -1;
+	}
+
+	free(pnode);
+	return 0;
+
 }
 
 /*
@@ -431,22 +463,39 @@ int user_login(struct s_key key, int sockfd, u32 cid)
  */
 int user_data_push(struct s_key key, struct data_packet *pdata)
 {
-	list_add(key, pdata);
+	list_push(key, pdata);
 }
 
 /*
  * 用户返回其数据包列表中的一个包
  */
-int user_data_pop()
+int user_data_pop(int sockfd, struct s_key key)
 {
-	/* list_pop() */
+	int ret;
+
+	ret = list_pop(sockfd, key);
+	if(-1 == ret) {
+		fprintf(stderr, "[user_data_pop]\n");
+		return -1;
+	} else if(LIST_NULL == ret) {
+		return LIST_NULL;
+	}
+
+	return ret;
 }
 
 /*
  * 判断一个用户是否在线
  */
-int user_is_onlie()
+int user_is_onlie(struct s_key key)
 {
+	auto iter = usermap.find(key);
+	if(iter == usermap.end()) {
+		fprintf(stderr, "[user_is_onlie]: %s\n",
+			"Cann't find the user");
+		return -1;
+	}
+	return usermap[key].online;
 }
 
 /*
@@ -699,8 +748,6 @@ void *server_receive(void *arg)
 		printf("Receive the exit packet\n");
 		server_close();
 	} else if(TYPE_DATA == phead->type) { /* Data packet */
-		printf("Receive %d bytes[%d]\n",
-			phead->len - HEAD_LEN, phead->dcid);
 		len = socket_recvn(sockfd,
 			(unsigned char *)phead + HEAD_LEN,
 			phead->len - HEAD_LEN);
@@ -709,6 +756,8 @@ void *server_receive(void *arg)
 				"Read data failed\n");
 			exit(EXIT_FAILURE);
 		}
+		printf("Receive %d bytes[%d]\n",
+			len, phead->dcid);
 		key.cid = phead->dcid;
 		user_data_push(key, (struct data_packet *)phead);
 	} else {
@@ -718,7 +767,6 @@ void *server_receive(void *arg)
 	}
 
 	}
-	free(phead);
 
 	return (void *)0;
 }
@@ -728,10 +776,32 @@ void *server_receive(void *arg)
  *
  * 根据传送过来的描述符，判断用户是否在线，如果在线则发送
  */
-int server_send()
+void *server_send(void *arg)
 {
-	if(user_is_onlie())
-		user_data_pop();
+	int sockfd = *(int *)arg;
+	struct s_key key;
+	int status;
+	int ret;
+
+	key.cid = f2c_query(sockfd);
+	status = user_is_onlie(key);
+	if(1 == status) {
+		ret = user_data_pop(sockfd, key);
+		if(-1 == ret)
+			goto err_ret;
+		else if(LIST_NULL == ret)
+			return (void *)0;
+	} else if(0 == status) {
+		printf("User %d has log out\n", key.cid);
+	} else {
+		goto err_ret;
+	}
+
+	return (void *)0;
+
+err_ret:
+	fprintf(stderr, "[server_send]\n");
+	return (void *)-1;
 }
 
 int main(int argc, char *argv[])
@@ -786,6 +856,8 @@ int main(int argc, char *argv[])
 				PTHREAD_DETACH_CREATE(server_receive,
 					&events[i].data.fd)
 			} else if (events[i].events & EPOLLOUT) {
+				PTHREAD_DETACH_CREATE(server_send,
+					&events[i].data.fd)
 			}
 		}
 	}
