@@ -137,12 +137,14 @@ ssize_t socket_recvn(int sockfd, void *ptr, size_t len)
 	while(nleft > 0) {
 		nrecv = recv(sockfd, vptr, nleft, 0);
 		if(-1 == nrecv) {
-			if(errno == EAGAIN || EWOULDBLOCK == errno)
-				continue;
-			fprintf(stderr, "[socket_recvn]: %s\n",
-				strerror(errno));
+			if(EAGAIN != errno)
+				fprintf(stderr, "[socket_recvn]: %s\n",
+					strerror(errno));
 			if(nleft == len) {
-				return -1;
+				if(EAGAIN == errno)
+					return SOCKET_NULL;
+				else
+					return -1;
 			} else {
 				return (len - nleft);
 			}
@@ -681,6 +683,8 @@ void *server_recvive(void *arg)
 
 	phead = (struct head *)malloc(BUF_LEN);
 
+	while(1) {
+
 	len = socket_recvn(sockfd, phead, BUF_LEN); /* Read a packet */
 	if(HEAD_LEN == len) {
 		if(TYPE_EXIT == phead->type) { /* Exit packet */
@@ -702,12 +706,17 @@ void *server_recvive(void *arg)
 					"Buf Packet Error");
 			exit(EXIT_FAILURE);
 		}
+	} else if(SOCKET_NULL == len) {
+	/* socket buffer read null */
+		printf("Read socket null\n");
+		break;
 	} else {
 		fprintf(stderr, "[server_recvive]: %s\n",
 			"Packet lenth error");
 		exit(EXIT_FAILURE);
 	}
 
+	}
 	free(phead);
 
 	return (void *)0;
@@ -775,17 +784,8 @@ int main(int argc, char *argv[])
 			}
 		} else {
 			if(events[i].events & EPOLLIN) {
-				/* PTHREAD_DETACH_CREATE(server_recvive, */
-				/* 	&events[i].data.fd) */
-				int ret;
-				char buf[BUFSIZ];
-				while(1) {
-					ret = read(events[i].data.fd, buf, BUFSIZ);
-					printf("Read %d bytes\n", ret);
-					if(-1 == ret && EAGAIN == errno)
-						perror("Error: ");
-					sleep(1);
-				}
+				PTHREAD_DETACH_CREATE(server_recvive,
+					&events[i].data.fd)
 			} else if (events[i].events & EPOLLOUT) {
 			}
 		}
