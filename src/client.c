@@ -158,6 +158,7 @@ int packet_make(struct head *head, u16 scid, u32 type, u16 dcid)
 {
 	struct login_packet *lpack = NULL;
 	struct data_packet *dpack = NULL;
+	struct exit_packet *epack = NULL;
 
 	switch(type) {
 	case TYPE_LOGIN:
@@ -174,6 +175,13 @@ int packet_make(struct head *head, u16 scid, u32 type, u16 dcid)
 		dpack->head.dcid = dcid;
 		dpack->head.scid = scid;
 		dpack->head.len = BUF_LEN;
+		break;
+	case TYPE_EXIT:
+		epack = (struct exit_packet *)head;
+		epack->head.type = type;
+		epack->head.dcid = dcid;
+		epack->head.scid = scid;
+		epack->head.len = HEAD_LEN;
 		break;
 	default:
 		fprintf(stderr, "[packet_make]: %s\n", "invailed type");
@@ -194,6 +202,7 @@ int packet_send(int sockfd, struct head *phead)
 	int len;
 
 	switch(phead->type) {
+	case TYPE_EXIT:
 	case TYPE_LOGIN:
 		len = socket_sendn(sockfd, phead, HEAD_LEN);
 		if(len != HEAD_LEN) {
@@ -310,9 +319,26 @@ void *client_recv(void *arg)
 {
 	int sockfd = *(int *)arg;
 	struct data_packet *pdata = NULL;
-	int len = 1;
+	int len = 1, ret;
 
-	pdata = (struct data_packet *)malloc(BUF_LEN);
+	ret = pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	if(0 != ret) {
+		fprintf(stderr, "[client_recv]: %s\n", strerror(ret));
+		exit(EXIT_FAILURE);
+	}
+
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+	if(0 != ret) {
+		fprintf(stderr, "[client_recv]: %s\n", strerror(ret));
+		exit(EXIT_FAILURE);
+	}
+
+	pthread_key_create(&r_key, free);
+	if(NULL == pthread_getspecific(r_key)) {
+		pdata = (struct data_packet *)malloc(BUF_LEN);
+		pthread_setspecific(r_key, pdata);
+	}
+
 	while(len != 0) {
 		len = packet_recv(sockfd,
 				(struct head *)pdata, TYPE_DATA);
@@ -320,10 +346,13 @@ void *client_recv(void *arg)
 			fprintf(stderr, "[client_recv]\n");
 			exit(-1);
 		}
-		printf("Recv %d bytes from the %d",
+		printf("Recv %d bytes from the %d\n",
 			len, pdata->head.scid);
 	}
+
+	/* 理论上这里不会被执行 */
 	free(pdata);
+	pdata = NULL;
 
 	return (void *)3;
 }
@@ -340,16 +369,13 @@ void *client_send(void *arg)
 	int dcid;
 	int packet_num;
 
-	while(1) {
-
-	printf("Please enter the packet_num: ");
-	scanf("%d", &packet_num);
+	printf("Please enter the packet_num & dcid: ");
+	while(EOF != scanf("%d%d", &packet_num, &dcid)) {
 
 	//Send packet_num packets
 	pdata = (struct data_packet *)malloc(BUF_LEN);
 	for(i = 0; i < packet_num; i++) {
 		/* dcid = 1000 - scid - i + 1; */
-		dcid = scid;	//Send to me
 		if(-1 == packet_make((struct head *)pdata,
 				scid, TYPE_DATA, dcid)) {
 			goto err_ret;
@@ -363,6 +389,7 @@ void *client_send(void *arg)
 	}
 	free(pdata);
 
+	printf("Please enter the packet_num & dcid: ");
 	}
 
 	return (void *)2;
@@ -375,8 +402,34 @@ err_ret:
 /*
  * 客户端发送退出报文，并关闭套接字
  */
-int client_logout()
+int client_logout(int sockfd, u16 scid)
 {
+	struct exit_packet pexit;
+	int ret;
+
+	ret = packet_make((struct head *)&pexit, scid, TYPE_EXIT, 0);
+	if(-1 == ret) {
+		goto err_ret;
+	}
+
+	ret = packet_send(sockfd, (struct head *)&pexit);
+	if(-1 == ret) {
+		goto err_ret;
+	}
+
+	ret = read(sockfd, NULL, 0);
+	if(0 == ret) {
+		printf("User %d logout\n", scid);
+		scid = -1;
+	} else {
+		goto err_ret;
+	}
+
+	return 0;
+
+err_ret:
+	fprintf(stderr, "[client_logout]\n");
+	return -1;
 }
 
 int main(int argc,char *argv[])
@@ -412,17 +465,30 @@ int main(int argc,char *argv[])
 		goto free_sock;
 	}
 
-	ret = pthread_join(rtid, &tret);
-	if(ret != 0) {
-		goto free_sock;
-	} else {
-		printf("Receive thread quit with code %ld\n", (long)tret);
-	}
 	ret = pthread_join(stid, &tret);
 	if(ret != 0) {
 		goto free_sock;
 	} else {
 		printf("Send thread quit with code %ld\n", (long)tret);
+	}
+
+	if(2 == (long)tret) {
+		if(-1 == client_logout(sockfd, scid))
+			goto free_sock;
+		ret = pthread_cancel(rtid);
+		if(0 != ret) {
+			fprintf(stderr, "%s\n", strerror(ret));
+			goto free_sock;
+		}
+	} else {
+		goto free_sock;
+	}
+
+	ret = pthread_join(rtid, &tret);
+	if(ret != 0) {
+		goto free_sock;
+	} else {
+		printf("Receive thread quit with code %ld\n", (long)tret);
 	}
 
 free_sock:

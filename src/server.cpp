@@ -5,11 +5,11 @@
  *        \ --- 控制
  *        \                     Receive function
  *	server(o) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~+
- *	  | -------  |  ------ | -------- |		    |
- *     usermap(go) f2c(go)   addr   threadpool(o)	    |
- *	  |	     ^					    |
- *	  |	     |					    |
- *	user(o) ~~~~~+ 影响				    |
+ *	  | -------  |  ------ | -------- | ------- |	    |
+ *     usermap(go) f2c(go)   addr   threadpool(o)  c2f(go)  |
+ *	  |	     ^				    ^	    |
+ *	  |	     |		影响		    |	    |
+ *	user(o) ~~~~ + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ +	    |
  *	  |						    |
  *	  | ---------- | ------ | 			    |
  *    packet_list(o)  fd     online			    |
@@ -141,7 +141,7 @@ ssize_t socket_recvn(int sockfd, void *ptr, size_t len)
 					strerror(errno));
 			if(nleft == len) {
 				if(EAGAIN == errno)
-					return SOCKET_NULL;
+					return READ_SOCKET_NULL;
 				else
 					return -1;
 			} else {
@@ -174,13 +174,18 @@ ssize_t socket_sendn(int sockfd, void *ptr, size_t len)
 	while(nleft > 0) {
 		nsend = send(sockfd, vptr, nleft, 0);
 		if(-1 == nsend) {
+			if(EAGAIN == errno) {
+				printf("Write socket full\n");
+				continue;
+			}
+
 			fprintf(stderr, "[socket_sendn]: %s\n",
 				strerror(errno));
 			if(nleft == len)
 				return -1;
 			else
 				return (len - nleft);
-		} else if(0 == nsend) {		/* EOF */
+		} else if(0 == nsend) {		/* close */
 			fprintf(stderr, "[socket_sendn]: %s\n",
 				"The peer socket has closed");
 			return (len - nleft);
@@ -273,12 +278,19 @@ int packet_send(int sockfd, struct head *phead)
 		break;
 	case TYPE_DATA:
 		len = socket_sendn(sockfd, phead, phead->len);
+		printf("Send %d bytes\n", len);
 		if(len != phead->len) {
 			fprintf(stderr, "[packet_send]\n");
-			free(phead);
+			if(NULL != phead) {
+				free(phead);
+				phead = NULL;
+			}
 			return -1;
 		}
-		free(phead);
+		if(NULL != phead) {
+			free(phead);
+			phead = NULL;
+		}
 		break;
 	default:
 		fprintf(stderr, "[packet_send]: %s\n",
@@ -324,7 +336,9 @@ int list_push(struct s_key key, struct data_packet *pdata)
 		usermap[key].list.tail->next = pnode;
 		usermap[key].list.tail = pnode;
 	}
-	printf("Add packet %d to %d\n", usermap[key].list.tail->pack->head.dcid, key.cid);
+	printf("Add packet %d to %d\n",
+		usermap[key].list.tail->pack->head.scid,
+		usermap[key].list.tail->pack->head.dcid);
 	pthread_mutex_unlock(&usermap[key].list.lock);
 }
 
@@ -335,6 +349,9 @@ int list_pop(int sockfd, struct s_key key)
 {
 	struct data_node *pnode = NULL;
 	int ret;
+	int status = 1;;
+
+	while(1) {
 
 	pthread_mutex_lock(&usermap[key].list.lock);
 	if(NULL == usermap[key].list.head && 
@@ -345,10 +362,14 @@ int list_pop(int sockfd, struct s_key key)
 	} else {
 		pnode = usermap[key].list.tail;
 		usermap[key].list.tail = pnode->prev;
-		usermap[key].list.tail->next = NULL;
+		if(NULL != usermap[key].list.tail) {
+			usermap[key].list.tail->next = NULL;
+		} else { //last node
+			usermap[key].list.head = NULL;
+		}
 	}
-	printf("Pop packet %d from %d\n",
-		usermap[key].list.tail->pack->head.scid, key.cid);
+	printf("Pop packet from %d to %d\n",
+		pnode->pack->head.scid, key.cid);
 	pthread_mutex_unlock(&usermap[key].list.lock);
 
 	ret = packet_send(sockfd, (struct head *)(pnode->pack));
@@ -357,10 +378,69 @@ int list_pop(int sockfd, struct s_key key)
 		free(pnode);
 		return -1;
 	}
-
 	free(pnode);
+
+	}
+
 	return 0;
 
+}
+
+/*
+ * 向c2f数组中添加cid -- fd对
+ */
+int c2f_add(u16 cid, int sockfd)
+{
+	auto iter = c2f.find(cid);
+	if(iter == c2f.end()) {	/* 该cid不存在 */
+		auto ret = c2f.insert(make_pair(cid, sockfd));
+		if(!ret.second) {
+			fprintf(stderr, "[c2f.insert]\n");
+			goto err_ret;
+		}
+	} else {
+		if(-1 == c2f[cid])
+			c2f[cid] = sockfd;
+		else
+			goto err_ret;
+	}
+
+	return 0;
+err_ret:
+	fprintf(stderr, "[c2f_add]\n");
+	return -1;
+}
+
+/*
+ * 将c2f数组中的cid -- fd对删除
+ *
+ * 该项条目是一定会存在的
+ */
+int c2f_delete(u16 cid)
+{
+	auto iter = c2f.find(cid);
+	if(iter == c2f.end())
+		return -1;
+
+	c2f[cid] = -1;
+
+	return 0;
+}
+
+/*
+ * 1. 给出cid，查询c2f数组中的fd
+ * 2. 如果相应fd是-1，则表明相应用户是离线的
+ *
+ * @ret:	fd
+ */
+int c2f_query(u16 cid)
+{
+	auto iter = c2f.find(cid);
+	if(iter == c2f.end()) {	/* 该cid不存在 */
+		return -1;
+	}
+
+	return c2f[cid];
 }
 
 /*
@@ -392,6 +472,14 @@ err_ret:
  */
 int f2c_delete(int fd)
 {
+	auto iter = f2c.find(fd);
+	if(iter == f2c.end()) {	/* 该fd不存在 */
+		return -1;
+	}
+
+	f2c.erase(fd);
+
+	return 0;
 }
 
 /*
@@ -422,17 +510,41 @@ int user_init(struct s_value *pvalue)
 }
 
 /*
- * 用户离线同时也将f2c中关于fd的映射取消掉
+ * 1. 用户离线
+ * 2. f2c中关于fd的映射取消掉
+ * 3. c2f中相关条目删除掉
  */
-int user_logout()
+int user_logout(u16 scid, int sockfd)
 {
-	/* online = 0; */
-	/* f2c_delete(); */
+	int ret;
+
+	struct s_key key = { scid };
+
+	usermap[key].online = 0;
+
+	ret = f2c_delete(sockfd);
+	if(-1 == ret)
+		goto err_ret;
+
+	ret = c2f_delete(scid);
+	if(-1 == ret)
+		goto err_ret;
+
+	close(sockfd);
+
+	printf("User %d log out\n", scid);
+
+	return 0;
+
+err_ret:
+	fprintf(stderr, "[user_logout]\n");
+	return -1;
 }
 
 /*
- * 将相应用户的在线标志设置为1,设置上用户的套接字描述符
- * 同时也将fd和cid的映射添加到f2c中
+ * 1. 将相应用户的在线标志设置为1,设置上用户的套接字描述符
+ * 2. 将fd和cid的映射添加到f2c中
+ * 3. 将cid和fd的映射添加到c2f中
  */
 int user_login(struct s_key key, int sockfd, u32 cid)
 {
@@ -454,7 +566,14 @@ int user_login(struct s_key key, int sockfd, u32 cid)
 		return -1;
 	}
 
-	printf("%d -- %d Login\n", usermap[key].fd, key.cid);
+	ret = c2f_add(cid, sockfd);
+	if(-1 == ret) {
+		fprintf(stderr, "[user_login]\n");
+		return -1;
+	}
+
+	printf("%d -- %d %d -- %d Login\n",
+		usermap[key].fd, key.cid, key.cid, c2f[key.cid]);
 	return 0;
 }
 
@@ -522,8 +641,7 @@ int usermap_add_user(int sockfd, u16 cid)
 			goto err_ret;
 		}
 	} else {
-		fprintf(stdout, "[usermap_add_user]: %s\n",
-			"User exist");
+		printf("[usermap_add_user]: %s\n", "User exist");
 	}
 
 	ret = user_login(key, sockfd, cid);
@@ -712,9 +830,14 @@ err_ret:
 /*
  * 服务器关闭与当前用户的连接
  */
-int server_close()
+int server_close(u16 scid, int sockfd)
 {
-	/* user_logout() */
+	if(-1 == user_logout(scid, sockfd)) {
+		fprintf(stderr, "[server_close]\n");
+		return -1;
+	}
+	
+	return 0;
 }
 
 /*
@@ -728,25 +851,28 @@ void *server_receive(void *arg)
 	int sockfd = *(int *)arg;
 	struct head *phead = NULL;
 	struct s_key key;
-	int len;
+	int len, dsock, ret;
 
-	phead = (struct head *)malloc(BUF_LEN);
 
 	while(1) {
 
+	phead = (struct head *)malloc(BUF_LEN);
 	len = socket_recvn(sockfd, phead, HEAD_LEN); /* Read a head */
 	if(-1 == len) {
 		fprintf(stderr, "[server_receive]\n");
 		exit(EXIT_FAILURE);
-	} else if(SOCKET_NULL == len) {
+	} else if(READ_SOCKET_NULL == len) {
 	/* socket buffer read null */
 		printf("Read socket null\n");
 		break;
 	}
 
 	if(TYPE_EXIT == phead->type) { /* Exit packet */
-		printf("Receive the exit packet\n");
-		server_close();
+		if (-1 == server_close(phead->scid, sockfd)) {
+			fprintf(stderr, "[server_receive]\n");
+			exit(EXIT_FAILURE);
+		}
+		break;
 	} else if(TYPE_DATA == phead->type) { /* Data packet */
 		len = socket_recvn(sockfd,
 			(unsigned char *)phead + HEAD_LEN,
@@ -758,8 +884,18 @@ void *server_receive(void *arg)
 		}
 		printf("Receive %d bytes[%d]\n",
 			len, phead->dcid);
+
 		key.cid = phead->dcid;
-		user_data_push(key, (struct data_packet *)phead);
+		dsock = c2f_query(key.cid);
+		if(-1 == dsock) { /* User logout */
+			user_data_push(key, (struct data_packet *)phead);
+		} else {
+			len = packet_send(sockfd, phead);
+			if(-1 == len) {
+				fprintf(stderr, "[server_receive]\n");
+				exit(EXIT_FAILURE);
+			}
+		}
 	} else {
 		fprintf(stderr, "[server_receive]: %s\n",
 			"Packet type error");
@@ -853,8 +989,9 @@ int main(int argc, char *argv[])
 			}
 		} else {
 			if(events[i].events & EPOLLIN) {
-				PTHREAD_DETACH_CREATE(server_receive,
-					&events[i].data.fd)
+				pthread_mutex_lock(&read_lock);
+				PTHREAD_DETACH_CREATE(server_receive, &events[i].data.fd)
+				pthread_mutex_unlock(&read_lock);
 			} else if (events[i].events & EPOLLOUT) {
 				PTHREAD_DETACH_CREATE(server_send,
 					&events[i].data.fd)

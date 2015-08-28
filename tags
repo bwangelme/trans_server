@@ -1,0 +1,129 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.9~svn20110310	//
+BUF_LEN	src/data_type.h	39;"	d
+CLIENT_H	src/client.h	2;"	d
+COMMON_H	src/common.h	2;"	d
+DATA_LEN	src/data_type.h	38;"	d
+DATA_TYPE_H	src/data_type.h	2;"	d
+HEAD_LEN	src/data_type.h	36;"	d
+IP	src/common.h	19;"	d
+LIST_NULL	src/server.h	14;"	d
+MAX_CLIENT	src/server.h	9;"	d
+MAX_EVENTS	src/server.h	10;"	d
+PORT	src/common.h	18;"	d
+PTHREAD_DETACH_CREATE	src/server.h	17;"	d
+PTHREAD_DETACH_CREATE	test/macro_func/macro_func.c	8;"	d	file:
+READ_SOCKET_NULL	src/server.h	12;"	d
+RESPONSE_LEN	src/data_type.h	40;"	d
+SERVER_H	src/server.h	2;"	d
+SRC	Makefile	/^SRC := .\/src\/$/;"	m
+STATUS_LOGIN	src/data_type.h	43;"	d
+TIMEOUT	src/data_type.h	41;"	d
+TYPE_DATA	src/data_type.h	46;"	d
+TYPE_EXIT	src/data_type.h	47;"	d
+TYPE_LOGIN	src/data_type.h	45;"	d
+TYPE_RESPONSE	src/data_type.h	48;"	d
+USER_LOGOUT	src/server.h	15;"	d
+WRITE_SOCKET_FULL	src/server.h	13;"	d
+addr_set	src/client.c	/^int addr_set(struct sockaddr_in *addr, socklen_t addlen,$/;"	f
+addr_set	src/server.cpp	/^int addr_set(struct sockaddr_in *addr, socklen_t addlen,$/;"	f
+addr_set	test/connect/client.c	/^int addr_set(struct sockaddr_in *addr, socklen_t addlen,$/;"	f
+c2f	src/server.h	/^map<u16, int> c2f;				\/\/用来存储fd和cid的映射$/;"	v
+c2f_add	src/server.cpp	/^int c2f_add(u16 cid, int sockfd)$/;"	f
+c2f_delete	src/server.cpp	/^int c2f_delete(u16 cid)$/;"	f
+c2f_query	src/server.cpp	/^int c2f_query(u16 cid)$/;"	f
+cid	src/server.h	/^	u16 cid;$/;"	m	struct:s_key
+client_init	src/client.c	/^int client_init()$/;"	f
+client_init	test/connect/client.c	/^int client_init()$/;"	f
+client_login	src/client.c	/^int client_login(int sockfd, char *ip, u16 port, u16 scid)$/;"	f
+client_logout	src/client.c	/^int client_logout()$/;"	f
+client_recv	src/client.c	/^void *client_recv(void *arg)$/;"	f
+client_send	src/client.c	/^void *client_send(void *arg)$/;"	f
+count	src/server.h	/^	int count;$/;"	m	struct:data_list
+data	src/data_type.h	/^	char data[0];$/;"	m	struct:data_packet
+data_list	src/server.h	/^struct data_list {$/;"	s
+data_node	src/server.h	/^struct data_node {$/;"	s
+data_packet	src/data_type.h	/^struct data_packet {$/;"	s
+dcid	src/data_type.h	/^	u16 dcid;$/;"	m	struct:head
+exit_packet	src/data_type.h	/^struct exit_packet {$/;"	s
+f2c	src/server.h	/^map<int, u16> f2c;				\/\/用来存储cid和fd的映射$/;"	v
+f2c_add	src/server.cpp	/^int f2c_add(int sockfd, u16 cid)$/;"	f
+f2c_delete	src/server.cpp	/^int f2c_delete(int fd)$/;"	f
+f2c_query	src/server.cpp	/^u16 f2c_query(int sockfd)$/;"	f
+fd	src/server.h	/^	int fd;			\/\/套接字描述符$/;"	m	struct:s_value
+func	test/macro_func/macro_func.c	/^void *func(void *arg)$/;"	f
+head	src/data_type.h	/^	struct head head;$/;"	m	struct:data_packet	typeref:struct:data_packet::head
+head	src/data_type.h	/^	struct head head;$/;"	m	struct:exit_packet	typeref:struct:exit_packet::head
+head	src/data_type.h	/^	struct head head;$/;"	m	struct:login_packet	typeref:struct:login_packet::head
+head	src/data_type.h	/^	struct head head;$/;"	m	struct:response_packet	typeref:struct:response_packet::head
+head	src/data_type.h	/^struct head {$/;"	s
+head	src/server.h	/^	struct data_node *head;$/;"	m	struct:data_list	typeref:struct:data_list::data_node
+len	src/data_type.h	/^	u32 len;$/;"	m	struct:head
+list	src/server.h	/^	struct data_list list;	\/\/存储用户数据的列表$/;"	m	struct:s_value	typeref:struct:s_value::data_list
+list_init	src/server.cpp	/^int list_init(struct data_list *plist)$/;"	f
+list_pop	src/server.cpp	/^int list_pop(int sockfd, struct s_key key)$/;"	f
+list_push	src/server.cpp	/^int list_push(struct s_key key, struct data_packet *pdata)$/;"	f
+lock	src/server.h	/^	pthread_mutex_t lock;$/;"	m	struct:data_list
+login_packet	src/data_type.h	/^struct login_packet {$/;"	s
+main	src/client.c	/^int main(int argc,char *argv[])$/;"	f
+main	src/server.cpp	/^int main(int argc, char *argv[])$/;"	f
+main	test/connect/client.c	/^int main(int argc,char *argv[])$/;"	f
+main	test/macro_func/macro_func.c	/^int main(int argc,char *argv[])$/;"	f
+next	src/server.h	/^	struct data_node *next;$/;"	m	struct:data_node	typeref:struct:data_node::data_node
+online	src/server.h	/^	u8 online;		\/\/用户在线的标志$/;"	m	struct:s_value
+operator <	src/server.h	/^	bool operator <(const struct s_key &other)const$/;"	f	struct:s_key
+pack	src/server.h	/^	struct data_packet *pack;$/;"	m	struct:data_node	typeref:struct:data_node::data_packet
+packet_make	src/client.c	/^int packet_make(struct head *head, u16 scid, u32 type, u16 dcid)$/;"	f
+packet_make	src/server.cpp	/^int packet_make(struct head *phead, u32 type)$/;"	f
+packet_recv	src/client.c	/^int packet_recv(int sockfd, struct head *phead, u32 type)$/;"	f
+packet_recv	src/server.cpp	/^int packet_recv(int sockfd, struct head *phead, u32 type, int oplen = 0)$/;"	f
+packet_send	src/client.c	/^int packet_send(int sockfd, struct head *phead)$/;"	f
+packet_send	src/server.cpp	/^int packet_send(int sockfd, struct head *phead)$/;"	f
+prev	src/server.h	/^	struct data_node *prev;$/;"	m	struct:data_node	typeref:struct:data_node::data_node
+response_packet	src/data_type.h	/^struct response_packet {$/;"	s
+s_key	src/server.h	/^struct s_key {$/;"	s
+s_value	src/server.h	/^struct s_value {$/;"	s
+scid	src/client.h	/^u16 scid;$/;"	v
+scid	src/data_type.h	/^	u16 scid;$/;"	m	struct:head
+server_accept	src/server.cpp	/^int server_accept(int listenfd)$/;"	f
+server_close	src/server.cpp	/^int server_close()$/;"	f
+server_epoll_add	src/server.cpp	/^int server_epoll_add(int epollfd, int fd, u32 events)$/;"	f
+server_epoll_create	src/server.cpp	/^int server_epoll_create()$/;"	f
+server_epoll_wait	src/server.cpp	/^int server_epoll_wait(int epollfd, struct epoll_event *events,$/;"	f
+server_init	src/server.cpp	/^int server_init(char *ip, u16 port)$/;"	f
+server_receive	src/server.cpp	/^void *server_receive(void *arg)$/;"	f
+server_response	src/server.cpp	/^int server_response(int sockfd)$/;"	f
+server_send	src/server.cpp	/^void *server_send(void *arg)$/;"	f
+socket_accept	src/server.cpp	/^int socket_accept(int listenfd)$/;"	f
+socket_block	test/connect/client.c	/^int socket_block(int sockfd)$/;"	f
+socket_client_create	src/client.c	/^int socket_client_create()$/;"	f
+socket_client_create	test/connect/client.c	/^int socket_client_create()$/;"	f
+socket_close	src/server.cpp	/^int socket_close(int sockfd)$/;"	f
+socket_conect	src/client.c	/^int socket_conect(int sockfd, char *ip, u16 port)$/;"	f
+socket_conect	test/connect/client.c	/^int socket_conect(int sockfd, char *ip, short port)$/;"	f
+socket_non_block	src/server.cpp	/^int socket_non_block(int sockfd)$/;"	f
+socket_non_block	test/connect/client.c	/^int socket_non_block(int sockfd)$/;"	f
+socket_recvn	src/client.c	/^ssize_t socket_recvn(int sockfd, void *ptr, size_t len)$/;"	f
+socket_recvn	src/server.cpp	/^ssize_t socket_recvn(int sockfd, void *ptr, size_t len)$/;"	f
+socket_sendn	src/client.c	/^ssize_t socket_sendn(int sockfd, void *ptr, size_t len)$/;"	f
+socket_sendn	src/server.cpp	/^ssize_t socket_sendn(int sockfd, void *ptr, size_t len)$/;"	f
+socket_server_create	src/server.cpp	/^int socket_server_create(struct sockaddr *addr, socklen_t addrlen)$/;"	f
+status	src/data_type.h	/^	u32 status;$/;"	m	struct:response_packet
+tail	src/server.h	/^	struct data_node *tail;$/;"	m	struct:data_list	typeref:struct:data_list::data_node
+type	src/data_type.h	/^	u32 type;$/;"	m	struct:head
+u16	src/data_type.h	/^typedef uint16_t u16;$/;"	t
+u32	src/data_type.h	/^typedef uint32_t u32;$/;"	t
+u64	src/data_type.h	/^typedef uint64_t u64;$/;"	t
+u8	src/data_type.h	/^typedef uint8_t u8;$/;"	t
+user_data_pop	src/server.cpp	/^int user_data_pop(int sockfd, struct s_key key)$/;"	f
+user_data_push	src/server.cpp	/^int user_data_push(struct s_key key, struct data_packet *pdata)$/;"	f
+user_init	src/server.cpp	/^int user_init(struct s_value *pvalue)$/;"	f
+user_is_onlie	src/server.cpp	/^int user_is_onlie(struct s_key key)$/;"	f
+user_login	src/server.cpp	/^int user_login(struct s_key key, int sockfd, u32 cid)$/;"	f
+user_logout	src/server.cpp	/^int user_logout()$/;"	f
+usermap	src/server.h	/^map<struct s_key, struct s_value> usermap;	\/\/用来存储cid和用户的映射$/;"	v
+usermap_add_user	src/server.cpp	/^int usermap_add_user(int sockfd, u16 cid)$/;"	f
