@@ -278,7 +278,6 @@ int packet_send(int sockfd, struct head *phead)
 		break;
 	case TYPE_DATA:
 		len = socket_sendn(sockfd, phead, phead->len);
-		printf("Send %d bytes\n", len);
 		if(len != phead->len) {
 			fprintf(stderr, "[packet_send]\n");
 			if(NULL != phead) {
@@ -287,6 +286,8 @@ int packet_send(int sockfd, struct head *phead)
 			}
 			return -1;
 		}
+		printf("Send %d bytes from %d to %d\n",
+			len, phead->scid, phead->dcid);
 		if(NULL != phead) {
 			free(phead);
 			phead = NULL;
@@ -336,7 +337,7 @@ int list_push(struct s_key key, struct data_packet *pdata)
 		usermap[key].list.tail->next = pnode;
 		usermap[key].list.tail = pnode;
 	}
-	printf("Add packet %d to %d\n",
+	printf("Add packet from %d to %d\n",
 		usermap[key].list.tail->pack->head.scid,
 		usermap[key].list.tail->pack->head.dcid);
 	pthread_mutex_unlock(&usermap[key].list.lock);
@@ -368,8 +369,6 @@ int list_pop(int sockfd, struct s_key key)
 			usermap[key].list.head = NULL;
 		}
 	}
-	printf("Pop packet from %d to %d\n",
-		pnode->pack->head.scid, key.cid);
 	pthread_mutex_unlock(&usermap[key].list.lock);
 
 	ret = packet_send(sockfd, (struct head *)(pnode->pack));
@@ -882,8 +881,8 @@ void *server_receive(void *arg)
 				"Read data failed\n");
 			exit(EXIT_FAILURE);
 		}
-		printf("Receive %d bytes[%d]\n",
-			len, phead->dcid);
+		printf("Receive %d bytes from %d to %d\n",
+			len, phead->scid, phead->dcid);
 
 		key.cid = phead->dcid;
 		dsock = c2f_query(key.cid);
@@ -904,6 +903,7 @@ void *server_receive(void *arg)
 
 	}
 
+	pthread_mutex_unlock(&read_lock);
 	return (void *)0;
 }
 
@@ -991,7 +991,6 @@ int main(int argc, char *argv[])
 			if(events[i].events & EPOLLIN) {
 				pthread_mutex_lock(&read_lock);
 				PTHREAD_DETACH_CREATE(server_receive, &events[i].data.fd)
-				pthread_mutex_unlock(&read_lock);
 			} else if (events[i].events & EPOLLOUT) {
 				PTHREAD_DETACH_CREATE(server_send,
 					&events[i].data.fd)
