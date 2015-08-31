@@ -4,19 +4,19 @@
  *        \
  *        \ --- 控制
  *        \                     Receive function
- *	server(o) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~+
- *	  | -------  |  ------ | -------- | ------- |	    |
- *     usermap(go) f2c(go)   addr   threadpool(o)  c2f(go)  |
- *	  |	     ^				    ^	    |
- *	  |	     |		影响		    |	    |
- *	user(o) ~~~~ + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ +	    |
- *	  |						    |
- *	  | ---------- | ------ | 			    |
- *    packet_list(o)  fd     online			    |
- *	  |						    |
- *	packet(o)					    |
- *	  |						    |
- *	socket(o) <~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~+
+ *	server(o) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~+
+ *	  | -------  |  ------ | -------- | ------- | -------- |      |
+ *     usermap(go) f2c(go)   addr   threadpool(o)  c2f(go) thread_sig |
+ *	  |	     ^                              ^	              |
+ *	  |	     |		影响		    |	              |
+ *	user(o) ~~~~ + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ +	              |
+ *	  |						              |
+ *	  | ---------- | ------ | 			              |
+ *    packet_list(o)  fd     online			              |
+ *	  |						              |
+ *	packet(o)					              |
+ *	  |						              |
+ *	socket(o) <~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~+
  *
  * usermap: 用户和cid的映射，为了以后添加新的键元素，所以用结构体来保存键
  * f2c:	fd到cid的映射
@@ -746,12 +746,40 @@ int addr_set(struct sockaddr_in *addr, socklen_t addlen,
 }
 
 /*
- * 服务器初始化，创建套接字
+ * 处理信号的线程，所有接收到的线程都将在这个线程中处理
+ */
+void *thread_signal(void *arg)
+{
+	sigset_t mask;
+	int err, signo;
+
+	sigfillset(&mask);
+
+	for (;;) {
+		err = sigwait(&mask, &signo);
+		if(err != 0) {
+			fprintf(stderr, "[thread_signal]: %s\n", strerror(err));
+			exit(EXIT_FAILURE);
+		}
+		switch(signo) {
+		case SIGINT:
+			printf("Receive a ^C\n");
+			break;
+		default:
+			printf("Receive signal %d\n", signo);
+			break;
+		}
+	}
+}
+
+/*
+ * 服务器初始化，创建套接字，创建一个线程来接收所有的信号
  */
 int server_init(char *ip, u16 port)
 {
 	int listenfd, ret;
 	struct sockaddr_in servaddr;
+	sigset_t mask;
 
 	ret = addr_set(&servaddr, sizeof(servaddr), ip, port);
 	if(-1 == ret) {
@@ -764,6 +792,14 @@ int server_init(char *ip, u16 port)
 		goto err_ret;
 	}
 
+	sigfillset(&mask);
+	ret = pthread_sigmask(SIG_BLOCK, &mask, NULL);
+	if(ret != 0) {
+		fprintf(stderr, "\n%s", strerror(ret));
+		goto err_ret;
+	}
+
+	PTHREAD_DETACH_CREATE(thread_signal, NULL)
 //TODO:
 //	threadpool_init();
 
