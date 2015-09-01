@@ -764,6 +764,8 @@ void *thread_signal(void *arg)
 		switch(signo) {
 		case SIGINT:
 			printf("Receive a ^C\n");
+    			tpool_destroy();
+			exit(EXIT_SUCCESS);
 			break;
 		default:
 			printf("Receive signal %d\n", signo);
@@ -800,8 +802,12 @@ int server_init(char *ip, u16 port)
 	}
 
 	PTHREAD_DETACH_CREATE(thread_signal, NULL)
-//TODO:
-//	threadpool_init();
+
+	if (tpool_init(20) != 0) {
+		fprintf(stderr, "[%s]tpool_create failed\n",
+			__FUNCTION__);
+		exit(EXIT_FAILURE);
+	}
 
 	return listenfd;
 
@@ -950,7 +956,7 @@ void *server_receive(void *arg)
  */
 void *server_send(void *arg)
 {
-	int sockfd = *(int *)arg;
+	int sockfd = (int )arg;
 	struct s_key key;
 	int status;
 	int ret;
@@ -1028,8 +1034,8 @@ int main(int argc, char *argv[])
 				pthread_mutex_lock(&read_lock);
 				PTHREAD_DETACH_CREATE(server_receive, &events[i].data.fd)
 			} else if (events[i].events & EPOLLOUT) {
-				PTHREAD_DETACH_CREATE(server_send,
-					&events[i].data.fd)
+				tpool_add_work(server_send,
+					(void *)events[i].data.fd);
 			}
 		}
 	}

@@ -2,6 +2,7 @@
 #define SERVER_H
 
 #include "data_type.h"
+#include "thread_pool.h"
 #include <map>
 #include <vector>
 using namespace std;

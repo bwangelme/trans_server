@@ -38,7 +38,6 @@ struct response_packet {
 #define DATA_LEN 1024
 #define BUF_LEN HEAD_LEN+DATA_LEN
 #define RESPONSE_LEN HEAD_LEN+sizeof(u32)
-#define TIMEOUT 20
 
 #define STATUS_LOGIN	0x00000011  //登录成功
 
