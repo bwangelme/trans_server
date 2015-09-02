@@ -2,7 +2,7 @@
 #define THREAD_POOL_H__
  
 #include <pthread.h>
-#define TIMEOUT  6	/* 设置线程的休眠时延，以秒为单位 */
+#define TIMEOUT  16	/* 设置线程的休眠时延，以秒为单位 */
  
 typedef struct tpool_work {
     void*               (*routine)(void*);       /* 任务函数 */

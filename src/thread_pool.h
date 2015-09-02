@@ -26,22 +26,23 @@ extern "C" {
 #endif
 
 /*
- * @brief     创建线程池 
- * @param     max_thr_num 最大线程数
- * @return     0: 成功 其他: 失败  
+ * 创建线程池 
+ * @max_thr_num:	最大线程数
+ * @return:		0: 成功 其他: 失败  
  */
 int tpool_init(int max_thr_num);
  
 /*
- * @brief     销毁线程池 
+ * 销毁线程池 
  */
 void tpool_destroy();
  
 /*
- * @brief     向线程池中添加任务
- * @param    routine 任务函数指针
- * @param     arg 任务函数参数
- * @return     0: 成功 其他:失败 
+ * 向线程池中添加任务
+ *
+ * @routine:	任务函数指针
+ * @arg:	任务函数参数
+ * @return:	0: 成功 其他:失败 
  */
 int tpool_add_work(void*(*routine)(void*), void *arg);
  

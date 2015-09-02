@@ -357,7 +357,6 @@ int list_pop(int sockfd, struct s_key key)
 	pthread_mutex_lock(&usermap[key].list.lock);
 	if(NULL == usermap[key].list.head && 
 		usermap[key].list.tail == NULL) {
-		printf("The list is null[%d]\n", key.cid);
 		pthread_mutex_unlock(&usermap[key].list.lock);
 		return LIST_NULL;
 	} else {
@@ -763,7 +762,7 @@ void *thread_signal(void *arg)
 		}
 		switch(signo) {
 		case SIGINT:
-			printf("Receive a ^C\n");
+			printf("Server Exit\n");
     			tpool_destroy();
 			exit(EXIT_SUCCESS);
 			break;
@@ -904,7 +903,6 @@ void *server_receive(void *arg)
 		exit(EXIT_FAILURE);
 	} else if(READ_SOCKET_NULL == len) {
 	/* socket buffer read null */
-		printf("Read socket null\n");
 		break;
 	}
 

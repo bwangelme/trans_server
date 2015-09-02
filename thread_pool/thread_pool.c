@@ -16,11 +16,11 @@ static void* thread_routine(void *arg)
 	struct timespec tsp;
 	struct timeval now;
 
-	printf("A thread\n");
 	/* 如果线程池没有被销毁且没有任务要执行，则等待 */
 	while(1) {
 		pthread_mutex_lock(&tpool->queue_lock);
-		while(NULL == tpool->head && 0 != tpool->quit) {
+		tpool->idle++;
+		while(NULL == tpool->head && 0 == tpool->quit) {
 			gettimeofday(&now);
 			tsp.tv_sec = now.tv_sec;
 			tsp.tv_nsec = now.tv_usec * 1000;
@@ -29,11 +29,12 @@ static void* thread_routine(void *arg)
 					&tpool->queue_lock,
 					&tsp);
 			if(ETIMEDOUT == ret) {
-				fprintf(stderr, "[%s]thread %lu wait timeout\n",
+				fprintf(stderr,
+					"[%s]thread %lu wait timeout\n",
 					__FUNCTION__, pthread_self());
 				timeout = 1;
+				break;
 			}
-			break;
 		}
 
 		tpool->idle--;
@@ -162,7 +163,6 @@ int tpool_add_work(void*(*routine)(void*), void *arg)
 		fprintf(stderr, "The max thread has created\n");
 	}
 	pthread_mutex_unlock(&tpool->queue_lock);
-	/* printf("Add end %d\n", (int)arg); */
 	 
 	return 0;    
 }

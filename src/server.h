@@ -15,23 +15,6 @@ using namespace std;
 #define LIST_NULL 		0xee000003	//用户的当前链表为空
 #define USER_LOGOUT		0xee000004	//用户已经登出 
 
-#define PTHREAD_DETACH_CREATE(func, arg)\
-{					\
-	int 		err;		\
-	pthread_t	tid;		\
-	pthread_attr_t	attr;		\
-					\
-	err = pthread_attr_init(&attr);	\
-	if(err != 0) {			\
-		fprintf(stderr, "[pthread_detach_create]: %s\n", strerror(errno));\
-		return -1;		\
-	}				\
-	err = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);	\
-	if(0 == err)			\
-		err = pthread_create(&tid, &attr, (func), (arg));		\
-	pthread_attr_destroy(&attr);	\
-}
-
 struct s_key {
 	u16 cid;
 	bool operator <(const struct s_key &other)const
