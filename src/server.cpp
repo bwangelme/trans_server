@@ -203,6 +203,10 @@ ssize_t socket_sendn(int sockfd, void *ptr, size_t len)
  */
 int socket_close(int sockfd)
 {
+	int ret;
+
+	ret = close(sockfd);
+	return ret;
 }
 
 /*
@@ -528,7 +532,7 @@ int user_logout(u16 scid, int sockfd)
 	if(-1 == ret)
 		goto err_ret;
 
-	close(sockfd);
+	socket_close(sockfd);
 
 	printf("User %d log out\n", scid);
 
