@@ -958,7 +958,7 @@ void *server_receive(void *arg)
  */
 void *server_send(void *arg)
 {
-	int sockfd = (int )arg;
+	int sockfd = (long)arg;
 	struct s_key key;
 	int status;
 	int ret;
